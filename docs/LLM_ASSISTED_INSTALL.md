@@ -2,14 +2,14 @@
 
 이 문서는 다른 LLM, coding agent, 원격 지원자가 사용자의 Brave/Chrome에 `price_monitoring_extension` 설치를 도울 때 따라야 할 절차입니다.
 
-목표는 브라우저 확장만 안전하게 설치하고, 서버 token이나 개인 설정을 노출하지 않는 것입니다.
+목표는 브라우저 확장만 안전하게 설치하고, 서버 비밀값이나 개인 설정을 노출하지 않는 것입니다.
 
 ## 역할 구분
 
 | 역할 | 해야 할 일 | 하지 말아야 할 일 |
 |------|------------|-------------------|
-| LLM/agent | repo clone/pull 안내, 파일 구조 확인, 검증 명령 실행, 브라우저 설치 절차 안내 | token 요구/출력/저장, 서버 전체 설치, `.env` 수정, 무단 삭제 |
-| 사용자 | Brave/Chrome UI에서 unpacked extension 로드, popup에 token 입력, Coupang page에서 수동 전송 | token을 채팅이나 로그에 붙여넣기 |
+| LLM/agent | repo clone/pull 안내, 파일 구조 확인, 검증 명령 실행, 브라우저 설치 절차 안내 | 비밀 인증값 요구/출력/저장, 서버 전체 설치, `.env` 수정, 무단 삭제 |
+| 사용자 | Brave/Chrome UI에서 unpacked extension 로드, Coupang page에서 수동 전송 | 비밀 인증값을 채팅이나 로그에 붙여넣기 |
 
 ## 설치 전 확인
 
@@ -60,7 +60,7 @@ cd /home/kth/workspace/price_monitoring_extension
 python3 -m json.tool manifest.json >/tmp/pm_ext_manifest.json
 node --check popup.js
 node --check content.js
-if rg -n "cookie|localStorage|innerHTML|outerHTML|document\\.documentElement|DETAIL_CHECK_IMPORT_TOKEN=.*[A-Za-z0-9]" manifest.json popup.html popup.js content.js; then
+if rg -n "cookie|sessionStorage|localStorage|innerHTML|outerHTML|document\\.documentElement|Authorization|Bearer|DETAIL_CHECK_IMPORT_TOKEN" manifest.json popup.html popup.js content.js; then
   echo "FAIL: forbidden pattern found"
   exit 1
 else
@@ -68,7 +68,7 @@ else
 fi
 ```
 
-마지막 scan은 금지 패턴 점검입니다. `PASS: no forbidden pattern found`가 나오면 정상입니다. `FAIL`이 나오면 설치를 중단하고 사용자에게 보고합니다. 실제 token, cookie 수집, broad DOM injection 코드가 나오면 커밋하거나 설치 안내를 계속하지 않습니다.
+마지막 scan은 금지 패턴 점검입니다. `PASS: no forbidden pattern found`가 나오면 정상입니다. `FAIL`이 나오면 설치를 중단하고 사용자에게 보고합니다. `content.js`의 `document.body.innerText`는 버튼 클릭 시 보이는 본문 텍스트만 읽기 위한 허용 동작입니다. 실제 비밀 인증값 처리, cookie 수집, broad DOM injection 코드가 나오면 커밋하거나 설치 안내를 계속하지 않습니다.
 
 ## Brave 설치 안내
 
@@ -84,17 +84,13 @@ Chrome이면 `chrome://extensions`에서 같은 절차를 사용합니다.
 
 ## 설정 안내
 
-popup에 입력할 값:
-
-- 서버 URL: 보통 `http://100.118.184.5:5000`
-- Bearer token: 서버의 `DETAIL_CHECK_IMPORT_TOKEN`
+popup은 서버 URL `http://100.118.184.5:5000`을 읽기 전용으로 보여 줍니다.
 
 중요:
 
-- LLM/agent는 token 값을 채팅에 붙여넣으라고 요구하지 않습니다.
-- LLM/agent는 token 값을 echo, log, screenshot, commit에 남기지 않습니다.
-- 사용자가 popup에 직접 입력합니다.
-- token이 맞는지 확인해야 할 때는 값을 보여 달라고 하지 말고, 서버 로그나 HTTP status만 보고 판단합니다.
+- LLM/agent는 비밀 인증값을 채팅에 붙여넣으라고 요구하지 않습니다.
+- LLM/agent는 비밀 인증값을 echo, log, screenshot, commit에 남기지 않습니다.
+- 이 확장은 별도 인증 입력 없이 서버의 Tailscale source gate만 전제로 동작합니다.
 
 ## 수동 동작 확인
 
@@ -102,7 +98,7 @@ popup에 입력할 값:
 
 1. `https://www.coupang.com/` 상품 상세 페이지 열기.
 2. `Coupang Detail Import` popup 열기.
-3. 서버 URL/token 입력 여부 확인.
+3. 서버 URL 표시가 현재 운영 origin과 같은지 확인.
 4. `현재 페이지 저장` 클릭.
 5. success 또는 error 메시지 확인.
 6. 서버 UI에서 import 결과 확인.
@@ -124,8 +120,8 @@ node --check /home/kth/workspace/price_monitoring_extension/content.js
 LLM/agent는 아래 작업을 하지 않습니다.
 
 - `price_monitoring` 서버 전체 설치를 시도.
-- token, `.env`, DB 파일을 repo에 복사.
-- 사용자의 token 값을 출력하거나 저장.
+- 비밀 인증값, `.env`, DB 파일을 repo에 복사.
+- 사용자의 비밀 인증값을 출력하거나 저장.
 - `npm install`, `pip install`, `docker compose up`, DB 초기화처럼 서버나 backend dependency를 설치.
 - `git reset --hard`, `git clean`, `rm -rf` 같은 파괴적 명령 실행.
 - 사용자의 브라우저 profile을 삭제하거나 초기화.
@@ -137,5 +133,5 @@ LLM/agent는 아래 작업을 하지 않습니다.
 - `manifest.json`, `popup.html`, `popup.js`, `content.js`가 repo root에 있다.
 - 정적 검증이 통과한다.
 - 사용자가 Brave/Chrome에서 unpacked extension을 로드했다.
-- 사용자가 popup에 서버 URL/token을 직접 설정했다.
+- popup에 운영 서버 URL이 고정 표시된다.
 - Coupang 상세 page에서 수동 전송 결과를 확인했다.

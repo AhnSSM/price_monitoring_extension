@@ -4,7 +4,7 @@
 
 1. Brave 또는 Chrome에서 Coupang 상품 상세 페이지를 엽니다.
 2. 툴바에서 `Coupang Detail Import` 확장 아이콘을 누릅니다.
-3. 서버 URL과 Bearer token이 입력되어 있는지 확인합니다.
+3. popup에 고정 표시된 서버 URL이 현재 운영 Tailscale origin과 같은지 확인합니다.
 4. `현재 페이지 저장`을 누릅니다.
 5. popup 상태 메시지를 확인합니다.
 6. `price_monitoring` 서버 UI 또는 로그에서 import 결과를 확인합니다.
@@ -34,7 +34,7 @@
 - background crawling.
 - 자동 페이지 순회.
 - Coupang 로그인 정보 수집.
-- cookie 또는 localStorage 수집.
+- cookie 또는 브라우저 저장소 수집.
 - screenshot capture.
 - 서버 설정 변경.
 

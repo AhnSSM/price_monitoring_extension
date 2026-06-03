@@ -76,38 +76,37 @@
         color: var(--muted);
       }
 
-      form {
+      .form {
         display: grid;
         gap: 12px;
         padding: 14px 16px 16px;
       }
 
-      label {
-        display: grid;
-        gap: 6px;
+      .server-line {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        border: 1px solid rgba(90, 69, 36, 0.18);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.72);
+        padding: 10px 12px;
+        font-size: 12px;
+        line-height: 1.4;
+        color: var(--text);
       }
 
-      .label-text {
-        font-size: 12px;
+      .server-line .label-text {
         font-weight: 700;
         color: var(--muted);
       }
 
-      input {
-        width: 100%;
-        border: 1px solid rgba(90, 69, 36, 0.18);
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.72);
-        color: var(--text);
-        padding: 10px 12px;
-        font: inherit;
-        transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
-      }
-
-      input:focus {
-        outline: none;
-        border-color: rgba(182, 84, 29, 0.72);
-        box-shadow: 0 0 0 3px rgba(182, 84, 29, 0.12);
+      .server-line .server-url {
+        font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 12px;
+        color: var(--accent-strong);
+        word-break: break-all;
+        text-align: right;
       }
 
       button {
@@ -185,35 +184,16 @@
           <h1 id="panel-title">쿠팡 상세 확인 가져오기</h1>
           <p class="subtitle">현재 열린 Coupang 상품 페이지의 보이는 텍스트만 서버로 전송합니다.</p>
         </header>
-        <form id="import-form">
-          <label for="server-url">
+        <form id="import-form" class="form">
+          <div class="server-line" aria-label="서버 URL">
             <span class="label-text">서버 URL</span>
-            <input
-              id="server-url"
-              name="serverUrl"
-              type="url"
-              inputmode="url"
-              placeholder="http://100.118.184.5:5000"
-              autocomplete="off"
-              spellcheck="false"
-            />
-          </label>
-          <label for="token">
-            <span class="label-text">Bearer 토큰</span>
-            <input
-              id="token"
-              name="token"
-              type="password"
-              placeholder="서버 토큰 입력"
-              autocomplete="off"
-              spellcheck="false"
-            />
-          </label>
+            <span id="server-url" class="server-url">http://100.118.184.5:5000</span>
+          </div>
           <button id="save-button" type="submit">현재 페이지 저장</button>
           <p id="status" class="status" role="status" aria-live="polite">
             Coupang 상품 페이지를 연 뒤 버튼을 누르세요.
           </p>
-          <p class="hint">자동 제출은 하지 않습니다. 버튼을 눌렀을 때만 전송합니다.</p>
+          <p class="hint">서버는 Tailscale source gate로만 접근을 허용합니다. token 입력은 필요 없습니다.</p>
         </form>
       </section>
     </main>

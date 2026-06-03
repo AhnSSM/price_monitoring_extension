@@ -14,9 +14,15 @@ git clone git@github.com:AhnSSM/price_monitoring_extension.git
 2. 오른쪽 위 `개발자 모드`를 켭니다.
 3. `압축해제된 확장 프로그램 로드`를 누릅니다.
 4. 이 repo root, 즉 `price_monitoring_extension` 폴더를 선택합니다.
-5. 확장 popup에서 서버 URL과 Bearer token을 저장합니다.
+5. popup에 표시되는 서버 URL(`http://100.118.184.5:5000`)이 본인 운영 Tailscale server origin과 같은지 확인합니다.
 
 Chrome도 같은 방식이며 주소만 `chrome://extensions`입니다.
+
+## 서버 URL
+
+서버는 Tailscale 망 안에서만 접근을 허용합니다. 현재 운영 origin은 `http://100.118.184.5:5000`이며, popup에 고정 표시됩니다. 별도 입력이나 token 설정 절차는 없습니다.
+
+Tailscale IP 또는 MagicDNS hostname이 바뀌면 `manifest.json`의 `host_permissions`와 `popup.js`의 `SERVER_URL`/`SERVER_ORIGIN`을 함께 갱신하고 브라우저 확장을 reload해야 합니다.
 
 ## 문서
 
@@ -30,8 +36,8 @@ Chrome도 같은 방식이며 주소만 `chrome://extensions`입니다.
 ## 포함 파일
 
 - `manifest.json`: Manifest V3 설정과 host permission.
-- `popup.html`: 서버 URL, token, 수동 전송 버튼 UI.
-- `popup.js`: 설정 저장, Coupang 탭 확인, page payload 수집, import API POST.
+- `popup.html`: 서버 URL 표시와 수동 전송 버튼 UI.
+- `popup.js`: Coupang 탭 확인, page payload 수집, import API POST.
 - `content.js`: 현재 페이지의 최소 텍스트 정보만 반환하는 content script.
 - `docs/`: 설치, 설정, 운영, 문제 해결, 개발 검증 문서.
 
@@ -42,7 +48,8 @@ Chrome도 같은 방식이며 주소만 `chrome://extensions`입니다.
 핵심 원칙:
 
 - 이 repo는 브라우저 확장만 설치합니다. `price_monitoring` 서버 전체를 설치하지 않습니다.
-- token 값을 묻거나 출력하거나 Git에 기록하지 않습니다.
+- extension은 추가 인증 헤더를 보내지 않습니다. 인증은 서버의 Tailscale source gate가 담당합니다.
+- popup은 읽기 전용 서버 URL만 보여 주며, 브라우저 확장 저장소를 사용하지 않습니다.
 - `manifest.json`이 있는 repo root를 브라우저의 unpacked extension으로 로드합니다.
 - 사용자의 Brave/Chrome UI 조작은 사용자가 직접 확인해야 합니다.
 
@@ -58,17 +65,17 @@ Chrome도 같은 방식이며 주소만 `chrome://extensions`입니다.
 수집하지 않는 항목:
 
 - 브라우저 세션/cookie.
-- localStorage/sessionStorage 값.
+- 브라우저 저장소 값.
 - 계정 자격 증명.
 - 스크린샷.
 - 전체 HTML markup.
-- 서버 `.env`, DB, token 원문.
+- 서버 `.env`, DB, 비밀 인증값 원문.
 
 ## 운영 전제
 
 - `price_monitoring` 서버가 detail import API를 제공해야 합니다.
-- popup에 입력하는 Bearer token은 서버의 `DETAIL_CHECK_IMPORT_TOKEN` 값과 같아야 합니다.
-- token은 repo에 포함하지 않습니다. 사용자 브라우저의 `chrome.storage.local`에만 저장됩니다.
+- 서버는 Tailscale 망 안에서만 접근을 허용하도록 source gate가 설정돼 있어야 합니다.
+- 비밀 인증값을 extension이 보관하거나 전송하지 않습니다.
 - 현재 기본 서버 URL은 `http://100.118.184.5:5000`입니다.
 
 ## 검증
@@ -81,10 +88,10 @@ node --check popup.js
 node --check content.js
 ```
 
-문서에는 설명을 위해 `cookie`, `localStorage` 같은 단어가 등장하므로 실제 검증에서는 source 파일만 대상으로 삼습니다.
+소스 파일에 과도한 수집이나 비밀값 처리 흔적이 없는지 scan합니다.
 
 ```bash
-if rg -n "cookie|localStorage|innerHTML|outerHTML|document\\.documentElement|DETAIL_CHECK_IMPORT_TOKEN=.*[A-Za-z0-9]" manifest.json popup.html popup.js content.js; then
+if rg -n "cookie|sessionStorage|localStorage|innerHTML|outerHTML|document\\.documentElement|Authorization|Bearer|DETAIL_CHECK_IMPORT_TOKEN" manifest.json popup.html popup.js content.js; then
   echo "FAIL: forbidden pattern found"
   exit 1
 else
@@ -92,4 +99,4 @@ else
 fi
 ```
 
-마지막 scan은 금지 패턴 점검용입니다. `PASS: no forbidden pattern found`가 나와야 통과합니다. 실제 token이나 cookie 수집 코드가 나오면 커밋 전에 제거해야 합니다.
+`PASS: no forbidden pattern found`가 나와야 통과합니다. `content.js`의 `document.body.innerText`는 사용자가 버튼을 눌렀을 때 보이는 본문 텍스트만 읽기 위한 허용 동작입니다. 실제 과수집 코드나 비밀 인증값 처리 흔적이 발견되면 커밋 전에 제거해야 합니다.

@@ -1,19 +1,13 @@
-const DEFAULT_SERVER_URL = "http://100.118.184.5:5000";
+const SERVER_URL = "http://100.118.184.5:5000";
 const IMPORT_PATH = "/api/dedicated/coupang_apple_return_sale/detail-check/import";
-const STORAGE_KEY = "coupangDetailImportSettings";
-const ALLOWED_SERVER_ORIGINS = new Set([
-  "http://100.118.184.5:5000",
-  "http://127.0.0.1:5000",
-  "http://127.0.0.1:5001",
-  "http://localhost:5000",
-  "http://localhost:5001"
-]);
+const SERVER_ORIGIN = "http://100.118.184.5:5000";
 
 const form = document.getElementById("import-form");
-const serverUrlInput = document.getElementById("server-url");
-const tokenInput = document.getElementById("token");
+const serverUrlLabel = document.getElementById("server-url");
 const saveButton = document.getElementById("save-button");
 const statusElement = document.getElementById("status");
+
+serverUrlLabel.textContent = SERVER_URL;
 
 initialize().catch((error) => {
   setStatus(error.message || "초기화에 실패했습니다.", "error");
@@ -24,9 +18,6 @@ form.addEventListener("submit", async (event) => {
   saveButton.disabled = true;
 
   try {
-    const settings = getSettingsFromInputs();
-    await saveSettings(settings);
-
     const [tab] = await chrome.tabs.query({
       active: true,
       currentWindow: true
@@ -42,11 +33,10 @@ form.addEventListener("submit", async (event) => {
 
     setStatus("서버로 전송하고 있습니다.", "default");
 
-    const response = await fetch(`${settings.serverUrl}${IMPORT_PATH}`, {
+    const response = await fetch(`${SERVER_URL}${IMPORT_PATH}`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${settings.token}`
+        "Content-Type": "application/json"
       },
       body: JSON.stringify(payload)
     });
@@ -66,62 +56,9 @@ form.addEventListener("submit", async (event) => {
 });
 
 async function initialize() {
-  const settings = await loadSettings();
-  serverUrlInput.value = settings.serverUrl;
-  tokenInput.value = settings.token;
-}
-
-async function loadSettings() {
-  const stored = await chrome.storage.local.get(STORAGE_KEY);
-  const savedSettings = stored[STORAGE_KEY] || {};
-  return {
-    serverUrl: normalizeServerUrl(savedSettings.serverUrl || DEFAULT_SERVER_URL),
-    token: savedSettings.token || ""
-  };
-}
-
-async function saveSettings(settings) {
-  await chrome.storage.local.set({
-    [STORAGE_KEY]: settings
-  });
-}
-
-function getSettingsFromInputs() {
-  const serverUrl = normalizeServerUrl(serverUrlInput.value);
-  const token = tokenInput.value.trim();
-
-  if (!serverUrl) {
-    throw new Error("서버 URL을 입력하세요.");
+  if (serverUrlLabel.textContent.trim() !== SERVER_ORIGIN) {
+    serverUrlLabel.textContent = SERVER_ORIGIN;
   }
-
-  if (!token) {
-    throw new Error("Bearer 토큰을 입력하세요.");
-  }
-
-  return {
-    serverUrl,
-    token
-  };
-}
-
-function normalizeServerUrl(rawValue) {
-  const trimmed = (rawValue || "").trim();
-  if (!trimmed) {
-    return "";
-  }
-
-  let parsedUrl;
-  try {
-    parsedUrl = new URL(trimmed);
-  } catch (error) {
-    throw new Error("서버 URL 형식이 올바르지 않습니다.");
-  }
-
-  if (!ALLOWED_SERVER_ORIGINS.has(parsedUrl.origin)) {
-    throw new Error("manifest.json에 허용된 서버 URL만 사용할 수 있습니다.");
-  }
-
-  return parsedUrl.origin;
 }
 
 function validateCoupangTab(tab) {
