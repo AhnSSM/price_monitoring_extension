@@ -52,8 +52,8 @@ git -C /home/kth/workspace/price_monitoring_extension pull
 
 1. `brave://extensions` 또는 `chrome://extensions`를 엽니다.
 2. `Coupang Detail Import` 카드의 reload 버튼을 누릅니다.
-3. popup을 새로 열어 정상 동작을 확인합니다.
-4. popup은 고정 서버 URL만 보여 주므로 추가 설정 없이 바로 다시 확인하면 됩니다.
+3. popup을 새로 열어 서버 URL과 자동 송신 기본 OFF 상태를 확인합니다.
+4. 필요하면 자동 송신을 다시 켜고 최근 자동 상태가 정상 표시되는지 확인합니다.
 
 ## 5. 제거
 

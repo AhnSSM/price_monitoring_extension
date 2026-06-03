@@ -109,6 +109,99 @@
         text-align: right;
       }
 
+      .toggle-card {
+        display: grid;
+        gap: 10px;
+        border: 1px solid rgba(90, 69, 36, 0.18);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.78);
+        padding: 12px;
+      }
+
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .toggle-copy {
+        display: grid;
+        gap: 4px;
+      }
+
+      .toggle-title {
+        font-size: 13px;
+        font-weight: 800;
+      }
+
+      .toggle-note {
+        font-size: 11px;
+        line-height: 1.45;
+        color: var(--muted);
+      }
+
+      .switch {
+        position: relative;
+        width: 52px;
+        height: 30px;
+        flex: 0 0 auto;
+      }
+
+      .switch input {
+        position: absolute;
+        opacity: 0;
+        inset: 0;
+      }
+
+      .switch-track {
+        position: absolute;
+        inset: 0;
+        border-radius: 999px;
+        background: rgba(111, 101, 87, 0.25);
+        transition: background 180ms ease;
+      }
+
+      .switch-thumb {
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: #fffaf5;
+        box-shadow: 0 8px 18px -14px rgba(0, 0, 0, 0.65);
+        transition: transform 180ms ease;
+      }
+
+      .switch input:checked + .switch-track {
+        background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      }
+
+      .switch input:checked + .switch-track .switch-thumb {
+        transform: translateX(22px);
+      }
+
+      .auto-status {
+        margin: 0;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.6);
+        padding: 10px 11px;
+        font-size: 12px;
+        line-height: 1.45;
+        color: var(--muted);
+      }
+
+      .auto-status[data-tone="error"] {
+        color: var(--danger);
+        background: rgba(180, 35, 24, 0.08);
+      }
+
+      .auto-status[data-tone="success"] {
+        color: var(--success);
+        background: rgba(23, 102, 58, 0.08);
+      }
+
       button {
         border: 0;
         border-radius: 14px;
@@ -189,11 +282,28 @@
             <span class="label-text">서버 URL</span>
             <span id="server-url" class="server-url">http://100.118.184.5:5000</span>
           </div>
+          <section class="toggle-card" aria-labelledby="auto-mode-title">
+            <div class="toggle-row">
+              <div class="toggle-copy">
+                <span id="auto-mode-title" class="toggle-title">자동 송신</span>
+                <span class="toggle-note">기본 OFF. 상품 상세 페이지에서만 동작하며 최근 10분 중복은 건너뜁니다.</span>
+              </div>
+              <label class="switch" aria-label="자동 송신 토글">
+                <input id="auto-mode-toggle" type="checkbox" />
+                <span class="switch-track">
+                  <span class="switch-thumb"></span>
+                </span>
+              </label>
+            </div>
+            <p id="auto-status" class="auto-status" role="status" aria-live="polite">
+              자동 송신은 현재 꺼져 있습니다.
+            </p>
+          </section>
           <button id="save-button" type="submit">현재 페이지 저장</button>
           <p id="status" class="status" role="status" aria-live="polite">
             Coupang 상품 페이지를 연 뒤 버튼을 누르세요.
           </p>
-          <p class="hint">서버는 Tailscale source gate로만 접근을 허용합니다. token 입력은 필요 없습니다.</p>
+          <p class="hint">서버는 Tailscale source gate로만 접근을 허용합니다. 자동/수동 요청 모두 extension version 0.2.0을 함께 보냅니다.</p>
         </form>
       </section>
     </main>

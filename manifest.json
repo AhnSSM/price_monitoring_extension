@@ -1,15 +1,30 @@
 {
   "manifest_version": 3,
   "name": "Coupang Detail Import",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Import the current Coupang product page into the local detail-check pipeline.",
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "storage"
   ],
   "host_permissions": [
     "https://www.coupang.com/*",
     "http://100.118.184.5:5000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.coupang.com/vp/products/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
   ],
   "action": {
     "default_title": "Coupang Detail Import",
