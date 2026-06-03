@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Coupang Detail Import</title>
+    <style>
+      :root {
+        --bg: #f4efe4;
+        --surface: rgba(255, 251, 245, 0.92);
+        --surface-strong: #fffaf2;
+        --text: #1e1b16;
+        --muted: #6f6557;
+        --line: rgba(90, 69, 36, 0.16);
+        --accent: #b6541d;
+        --accent-strong: #924210;
+        --danger: #b42318;
+        --success: #17663a;
+        --shadow: rgba(70, 46, 20, 0.14);
+        --font-ui: "SUIT Variable", "Pretendard Variable", "Noto Sans KR", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 340px;
+        background:
+          radial-gradient(circle at top left, rgba(236, 167, 107, 0.28), transparent 42%),
+          linear-gradient(160deg, #f8f2e8 0%, #efe6d9 100%);
+        color: var(--text);
+        font-family: var(--font-ui);
+      }
+
+      main {
+        padding: 16px;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--surface);
+        box-shadow: 0 14px 30px -20px var(--shadow);
+        overflow: hidden;
+      }
+
+      .panel-header {
+        padding: 16px 16px 12px;
+        background:
+          linear-gradient(135deg, rgba(182, 84, 29, 0.14), rgba(255, 250, 242, 0.32)),
+          var(--surface-strong);
+        border-bottom: 1px solid rgba(90, 69, 36, 0.1);
+      }
+
+      .eyebrow {
+        margin: 0 0 6px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        color: var(--accent);
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 18px;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+      }
+
+      .subtitle {
+        margin: 8px 0 0;
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+
+      form {
+        display: grid;
+        gap: 12px;
+        padding: 14px 16px 16px;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+      }
+
+      .label-text {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--muted);
+      }
+
+      input {
+        width: 100%;
+        border: 1px solid rgba(90, 69, 36, 0.18);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--text);
+        padding: 10px 12px;
+        font: inherit;
+        transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+      }
+
+      input:focus {
+        outline: none;
+        border-color: rgba(182, 84, 29, 0.72);
+        box-shadow: 0 0 0 3px rgba(182, 84, 29, 0.12);
+      }
+
+      button {
+        border: 0;
+        border-radius: 14px;
+        background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+        color: #fffaf5;
+        padding: 12px 14px;
+        font: inherit;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        cursor: pointer;
+        transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+        box-shadow: 0 12px 24px -18px rgba(146, 66, 16, 0.85);
+      }
+
+      button:hover {
+        filter: brightness(1.02);
+        transform: translateY(-1px);
+      }
+
+      button:active {
+        transform: translateY(1px) scale(0.99);
+      }
+
+      button:disabled {
+        cursor: wait;
+        filter: saturate(0.7);
+        transform: none;
+      }
+
+      .status {
+        min-height: 38px;
+        margin: 0;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.55);
+        padding: 9px 11px;
+        font-size: 12px;
+        line-height: 1.45;
+        color: var(--muted);
+      }
+
+      .status[data-tone="error"] {
+        color: var(--danger);
+        background: rgba(180, 35, 24, 0.08);
+      }
+
+      .status[data-tone="success"] {
+        color: var(--success);
+        background: rgba(23, 102, 58, 0.08);
+      }
+
+      .hint {
+        margin: 0;
+        font-size: 11px;
+        line-height: 1.45;
+        color: var(--muted);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="panel" aria-labelledby="panel-title">
+        <header class="panel-header">
+          <p class="eyebrow">LOCAL MVP</p>
+          <h1 id="panel-title">쿠팡 상세 확인 가져오기</h1>
+          <p class="subtitle">현재 열린 Coupang 상품 페이지의 보이는 텍스트만 서버로 전송합니다.</p>
+        </header>
+        <form id="import-form">
+          <label for="server-url">
+            <span class="label-text">서버 URL</span>
+            <input
+              id="server-url"
+              name="serverUrl"
+              type="url"
+              inputmode="url"
+              placeholder="http://100.118.184.5:5000"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </label>
+          <label for="token">
+            <span class="label-text">Bearer 토큰</span>
+            <input
+              id="token"
+              name="token"
+              type="password"
+              placeholder="서버 토큰 입력"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </label>
+          <button id="save-button" type="submit">현재 페이지 저장</button>
+          <p id="status" class="status" role="status" aria-live="polite">
+            Coupang 상품 페이지를 연 뒤 버튼을 누르세요.
+          </p>
+          <p class="hint">자동 제출은 하지 않습니다. 버튼을 눌렀을 때만 전송합니다.</p>
+        </form>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
