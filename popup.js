@@ -1,17 +1,22 @@
 const SERVER_URL = "http://100.118.184.5:5000";
 const SERVER_ORIGIN = "http://100.118.184.5:5000";
+const EXTENSION_VERSION = "0.3.0";
 const AUTO_MODE_KEY = "autoModeEnabled";
 const AUTO_STATUS_KEY = "lastAutoStatus";
+const BATCH_STATUS_KEY = "currentListBatchStatus";
 const SUPPORTED_PRODUCT_PAGE_RE = /^https:\/\/www\.coupang\.com\/vp\/products\/[^/?#]+/;
 
 const form = document.getElementById("import-form");
+const versionElement = document.getElementById("extension-version");
 const serverUrlLabel = document.getElementById("server-url");
 const saveButton = document.getElementById("save-button");
 const statusElement = document.getElementById("status");
 const autoModeToggle = document.getElementById("auto-mode-toggle");
 const autoStatusElement = document.getElementById("auto-status");
+const batchStatusElement = document.getElementById("batch-status");
 
 serverUrlLabel.textContent = SERVER_URL;
+versionElement.textContent = `v${EXTENSION_VERSION}`;
 
 initialize().catch((error) => {
   setStatus(error.message || "초기화에 실패했습니다.", "error");
@@ -75,6 +80,7 @@ async function initialize() {
   }
 
   await renderAutoState();
+  await renderBatchState();
 }
 
 function validateCoupangTab(tab) {
@@ -142,6 +148,35 @@ async function renderAutoState() {
   setAutoStatus(`${lastAutoStatus.message || "최근 자동 송신 기록이 있습니다."}${suffix}`, lastAutoStatus.tone);
 }
 
+async function renderBatchState() {
+  const { currentListBatchStatus } = await getStorageValues([BATCH_STATUS_KEY]);
+  if (!currentListBatchStatus || typeof currentListBatchStatus !== "object") {
+    setBatchStatus("최근 current-list batch 기록이 없습니다.", "default");
+    return;
+  }
+
+  const summary = currentListBatchStatus.summary || {};
+  const completed = Number(summary.completed || 0);
+  const total = Number(summary.total || 0);
+  const success = Number(summary.success || 0);
+  const failure = Number(summary.failure || 0) + Number(summary.timeout || 0);
+  const batchId = currentListBatchStatus.batchId || "current-list";
+  const updatedAt = currentListBatchStatus.updatedAt
+    ? ` (${formatTimestamp(currentListBatchStatus.updatedAt)})`
+    : "";
+  const stateLabel = currentListBatchStatus.state === "running" ? "진행 중" : "최근 결과";
+  const tone = currentListBatchStatus.state === "failed"
+    ? "error"
+    : currentListBatchStatus.state === "completed"
+      ? "success"
+      : "default";
+
+  setBatchStatus(
+    `${stateLabel}: ${batchId} · ${completed}/${total} 완료 · 성공 ${success} · 실패 ${failure}${updatedAt}`,
+    tone
+  );
+}
+
 function setStatus(message, tone) {
   statusElement.textContent = message;
   if (tone === "error" || tone === "success") {
@@ -160,6 +195,16 @@ function setAutoStatus(message, tone) {
   }
 
   delete autoStatusElement.dataset.tone;
+}
+
+function setBatchStatus(message, tone) {
+  batchStatusElement.textContent = message;
+  if (tone === "error" || tone === "success") {
+    batchStatusElement.dataset.tone = tone;
+    return;
+  }
+
+  delete batchStatusElement.dataset.tone;
 }
 
 function formatTimestamp(isoString) {

@@ -74,6 +74,35 @@
     };
   }
 
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message || message.type !== "collect-page-payload") {
+      return false;
+    }
+
+    try {
+      const payload = buildPayload();
+      if (!payload) {
+        throw new Error("지원하지 않는 페이지입니다.");
+      }
+
+      if (!payload.text.trim()) {
+        throw new Error("보이는 본문 텍스트가 비어 있습니다.");
+      }
+
+      sendResponse({
+        ok: true,
+        payload
+      });
+    } catch (error) {
+      sendResponse({
+        ok: false,
+        error: error.message || "페이지 payload 수집에 실패했습니다."
+      });
+    }
+
+    return true;
+  });
+
   function scheduleAutoSend() {
     if (window.__pmAutoImportScheduledFor === window.location.href) {
       return;

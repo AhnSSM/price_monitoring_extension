@@ -62,6 +62,23 @@
         color: var(--accent);
       }
 
+      .eyebrow-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .version-badge {
+        border: 1px solid rgba(90, 69, 36, 0.16);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.72);
+        padding: 4px 8px;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--muted);
+      }
+
       h1 {
         margin: 0;
         font-size: 18px;
@@ -202,6 +219,36 @@
         background: rgba(23, 102, 58, 0.08);
       }
 
+      .batch-card {
+        display: grid;
+        gap: 8px;
+        border: 1px dashed rgba(90, 69, 36, 0.2);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.68);
+        padding: 12px;
+      }
+
+      .batch-title {
+        font-size: 12px;
+        font-weight: 800;
+        color: var(--muted);
+      }
+
+      .batch-status {
+        margin: 0;
+        font-size: 11px;
+        line-height: 1.45;
+        color: var(--muted);
+      }
+
+      .batch-status[data-tone="error"] {
+        color: var(--danger);
+      }
+
+      .batch-status[data-tone="success"] {
+        color: var(--success);
+      }
+
       button {
         border: 0;
         border-radius: 14px;
@@ -273,7 +320,10 @@
     <main>
       <section class="panel" aria-labelledby="panel-title">
         <header class="panel-header">
-          <p class="eyebrow">LOCAL MVP</p>
+          <div class="eyebrow-row">
+            <p class="eyebrow">LOCAL MVP</p>
+            <span id="extension-version" class="version-badge">v0.3.0</span>
+          </div>
           <h1 id="panel-title">쿠팡 상세 확인 가져오기</h1>
           <p class="subtitle">현재 열린 Coupang 상품 페이지의 보이는 텍스트만 서버로 전송합니다.</p>
         </header>
@@ -299,11 +349,17 @@
               자동 송신은 현재 꺼져 있습니다.
             </p>
           </section>
+          <section class="batch-card" aria-labelledby="batch-status-title">
+            <span id="batch-status-title" class="batch-title">최근 current-list batch</span>
+            <p id="batch-status" class="batch-status" role="status" aria-live="polite">
+              최근 current-list batch 기록이 없습니다.
+            </p>
+          </section>
           <button id="save-button" type="submit">현재 페이지 저장</button>
           <p id="status" class="status" role="status" aria-live="polite">
             Coupang 상품 페이지를 연 뒤 버튼을 누르세요.
           </p>
-          <p class="hint">서버는 Tailscale source gate로만 접근을 허용합니다. 자동/수동 요청 모두 extension version 0.2.0을 함께 보냅니다.</p>
+          <p class="hint">서버는 Tailscale source gate로만 접근을 허용합니다. 자동/수동 요청과 current-list batch import 모두 extension version 0.3.0을 함께 보냅니다.</p>
         </form>
       </section>
     </main>

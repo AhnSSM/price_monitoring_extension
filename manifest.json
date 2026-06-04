@@ -1,16 +1,19 @@
 {
   "manifest_version": 3,
   "name": "Coupang Detail Import",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Import the current Coupang product page into the local detail-check pipeline.",
   "permissions": [
     "activeTab",
     "scripting",
-    "storage"
+    "storage",
+    "tabs"
   ],
   "host_permissions": [
     "https://www.coupang.com/*",
-    "http://100.118.184.5:5000/*"
+    "http://100.118.184.5:5000/*",
+    "http://127.0.0.1:5000/*",
+    "http://localhost:5000/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -22,6 +25,17 @@
       ],
       "js": [
         "content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://100.118.184.5:5000/dedicated/coupang_apple_return_sale/current-list*",
+        "http://127.0.0.1:5000/dedicated/coupang_apple_return_sale/current-list*",
+        "http://localhost:5000/dedicated/coupang_apple_return_sale/current-list*"
+      ],
+      "js": [
+        "current_list_bridge.js"
       ],
       "run_at": "document_idle"
     }
