@@ -15,7 +15,7 @@
 
 ```json
 {
-  "extension_version": "0.3.0",
+  "extension_version": "0.3.1",
   "source": "manual_popup"
 }
 ```
@@ -36,12 +36,12 @@
 
 ### current-list batch runner
 
-`v0.3.0`부터는 서버 current-list 페이지가 primary trigger입니다.
+`v0.3.0`부터는 서버 current-list 페이지가 primary trigger입니다. `v0.3.1`은 상단 15개 후보를 6-5-4 웨이브로 처리합니다.
 
 1. current-list 페이지에서 extension 연결 확인 버튼 또는 batch 시작 버튼을 누릅니다.
 2. 페이지는 bridge content script에 `pm:ping`을 보내 설치/버전을 확인합니다.
-3. 버전이 `0.3.0`이면 페이지가 선택한 최대 10개 candidate와 batch id를 extension으로 전달합니다.
-4. extension background가 탭을 비활성으로 열고 concurrency 2로 순차 수집합니다.
+3. 버전이 `0.3.1`이면 페이지가 선택한 최대 15개 candidate, batch id, wave pattern을 extension으로 전달합니다.
+4. extension background가 탭을 비활성으로 열고 6-5-4 웨이브로 순차 수집합니다.
 5. 각 탭 payload는 기존 detail import API로 `source: "auto_page_view"` 전송됩니다.
 6. 페이지 또는 popup에서 최근 batch 상태를 확인합니다.
 
@@ -94,7 +94,7 @@
 
 ```json
 {
-  "extension_version": "0.3.0",
+  "extension_version": "0.3.1",
   "source": "manual_popup 또는 auto_page_view",
   "url": "브라우저 탭 URL",
   "final_url": "페이지에서 읽은 최종 URL",

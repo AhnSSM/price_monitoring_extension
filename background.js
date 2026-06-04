@@ -1,4 +1,4 @@
-const EXTENSION_VERSION = "0.3.0";
+const EXTENSION_VERSION = "0.3.1";
 const SERVER_URL = "http://100.118.184.5:5000";
 const IMPORT_PATH = "/api/dedicated/coupang_apple_return_sale/detail-check/import";
 const AUTO_MODE_KEY = "autoModeEnabled";
@@ -6,9 +6,10 @@ const AUTO_STATUS_KEY = "lastAutoStatus";
 const AUTO_DEDUP_KEY = "autoDedupMetadata";
 const BATCH_STATUS_KEY = "currentListBatchStatus";
 const AUTO_DEDUP_WINDOW_MS = 10 * 60 * 1000;
-const BATCH_CANDIDATE_CAP = 10;
-const DEFAULT_BATCH_CONCURRENCY = 2;
-const MAX_BATCH_CONCURRENCY = 2;
+const BATCH_CANDIDATE_CAP = 15;
+const DEFAULT_BATCH_WAVE_PATTERN = [6, 5, 4];
+const MAX_BATCH_WAVE_SIZE = 6;
+const BATCH_WAVE_PAUSE_MS = 1500;
 const TAB_LOAD_TIMEOUT_MS = 30 * 1000;
 const PAYLOAD_TIMEOUT_MS = 20 * 1000;
 const PAYLOAD_RETRY_INTERVAL_MS = 1500;
@@ -276,18 +277,22 @@ async function handleCurrentListBatchStart(payload) {
     batchId: batchRun.batchId,
     accepted: batchRun.items.length,
     startedAt: batchRun.status.startedAt,
-    concurrency: batchRun.concurrency
+    concurrency: batchRun.concurrency,
+    wavePattern: batchRun.wavePattern
   };
 }
 
 async function runBatch(batchRun) {
-  const workerCount = Math.min(batchRun.concurrency, batchRun.items.length);
-  const workers = [];
-  for (let index = 0; index < workerCount; index += 1) {
-    workers.push(runBatchWorker(batchRun));
-  }
+  while (batchRun.nextIndex < batchRun.items.length) {
+    const waveItems = takeNextBatchWave(batchRun);
+    touchBatchStatus(batchRun);
+    await persistBatchStatus(batchRun.status);
+    await Promise.all(waveItems.map((item) => processBatchItem(batchRun, item)));
 
-  await Promise.all(workers);
+    if (batchRun.nextIndex < batchRun.items.length) {
+      await delay(BATCH_WAVE_PAUSE_MS);
+    }
+  }
 
   batchRun.status.state = "completed";
   batchRun.status.completedAt = new Date().toISOString();
@@ -299,12 +304,24 @@ async function runBatch(batchRun) {
   }
 }
 
-async function runBatchWorker(batchRun) {
-  while (batchRun.nextIndex < batchRun.items.length) {
-    const item = batchRun.items[batchRun.nextIndex];
-    batchRun.nextIndex += 1;
-    await processBatchItem(batchRun, item);
+function takeNextBatchWave(batchRun) {
+  if (batchRun.nextIndex >= batchRun.items.length) {
+    return [];
   }
+
+  const wavePattern = Array.isArray(batchRun.wavePattern) && batchRun.wavePattern.length
+    ? batchRun.wavePattern
+    : DEFAULT_BATCH_WAVE_PATTERN;
+  const waveSize = wavePattern[batchRun.nextWaveIndex % wavePattern.length];
+  const startIndex = batchRun.nextIndex;
+  const endIndex = Math.min(startIndex + waveSize, batchRun.items.length);
+  const waveItems = batchRun.items.slice(startIndex, endIndex);
+
+  batchRun.nextIndex = endIndex;
+  batchRun.nextWaveIndex += 1;
+  batchRun.status.currentWave = batchRun.nextWaveIndex;
+  batchRun.status.waveCount = batchRun.nextWaveIndex;
+  return waveItems;
 }
 
 async function processBatchItem(batchRun, item) {
@@ -408,6 +425,8 @@ function normalizeBatchPayload(payload) {
     throw new Error(`current-list batch는 최대 ${BATCH_CANDIDATE_CAP}개까지만 지원합니다.`);
   }
 
+  const wavePattern = normalizeWavePattern(payload.wavePattern || payload.wave_pattern);
+
   return {
     batchId: typeof payload.batchId === "string" && payload.batchId.trim()
       ? payload.batchId.trim()
@@ -415,7 +434,8 @@ function normalizeBatchPayload(payload) {
     requiredVersion,
     serverUrl: SERVER_URL,
     importPath: IMPORT_PATH,
-    concurrency: normalizeConcurrency(payload.concurrency),
+    wavePattern,
+    concurrency: Math.max(...wavePattern),
     candidates: normalizedCandidates
   };
 }
@@ -447,13 +467,17 @@ function normalizeCandidate(candidate) {
   };
 }
 
-function normalizeConcurrency(value) {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 1) {
-    return DEFAULT_BATCH_CONCURRENCY;
+function normalizeWavePattern(value) {
+  if (!Array.isArray(value)) {
+    return [...DEFAULT_BATCH_WAVE_PATTERN];
   }
 
-  return Math.min(parsed, MAX_BATCH_CONCURRENCY);
+  const normalized = value
+    .map((item) => Number.parseInt(item, 10))
+    .filter((item) => Number.isFinite(item) && item > 0)
+    .map((item) => Math.min(item, MAX_BATCH_WAVE_SIZE));
+
+  return normalized.length ? normalized : [...DEFAULT_BATCH_WAVE_PATTERN];
 }
 
 function createBatchRun(payload) {
@@ -472,9 +496,11 @@ function createBatchRun(payload) {
     batchId: payload.batchId,
     serverUrl: payload.serverUrl,
     importPath: payload.importPath,
-    concurrency: payload.concurrency,
+    wavePattern: payload.wavePattern,
+    concurrency: Math.max(...payload.wavePattern),
     items,
     nextIndex: 0,
+    nextWaveIndex: 0,
     status: {
       batchId: payload.batchId,
       state: "running",
@@ -482,7 +508,10 @@ function createBatchRun(payload) {
       updatedAt: startedAt,
       completedAt: null,
       extensionVersion: EXTENSION_VERSION,
-      concurrency: payload.concurrency,
+      concurrency: Math.max(...payload.wavePattern),
+      wavePattern: payload.wavePattern,
+      currentWave: 0,
+      waveCount: 0,
       candidateCount: items.length,
       summary: buildBatchSummary(items),
       items: cloneBatchItems(items)
