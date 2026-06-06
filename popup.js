@@ -1,6 +1,6 @@
 const SERVER_URL = "http://100.118.184.5:5000";
 const SERVER_ORIGIN = "http://100.118.184.5:5000";
-const EXTENSION_VERSION = "0.3.3";
+const EXTENSION_VERSION = "0.3.4";
 const AUTO_MODE_KEY = "autoModeEnabled";
 const AUTO_STATUS_KEY = "lastAutoStatus";
 const BATCH_STATUS_KEY = "currentListBatchStatus";

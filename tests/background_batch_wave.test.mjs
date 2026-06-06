@@ -103,7 +103,7 @@ const {
 } = sandbox.__batchTestExports;
 
 // === Version, cap, and defaults ===
-assert.equal(EXTENSION_VERSION, "0.3.3");
+assert.equal(EXTENSION_VERSION, "0.3.4");
 assert.equal(BATCH_CANDIDATE_CAP, 30);
 assert.equal(DEFAULT_BATCH_ROUND_SIZE_MIN, 5);
 assert.equal(DEFAULT_BATCH_ROUND_SIZE_MAX, 10);
@@ -126,7 +126,7 @@ const candidates = Array.from({ length: 30 }, (_value, index) => {
 
 const payload = normalizeBatchPayload({
   batchId: "clb_wave_v033",
-  requiredExtensionVersion: "0.3.3",
+  requiredExtensionVersion: "0.3.4",
   roundSizeMin: 5,
   roundSizeMax: 10,
   roundSizeMode: "random",
@@ -146,9 +146,9 @@ assert.equal(payload.waveSleepMaxSeconds, 30);
 assert.equal(payload.stopOnBlock, true);
 assert.equal(payload.blockStopThreshold, 1);
 assert.ok(!Object.prototype.hasOwnProperty.call(payload, "wavePattern"),
-  "v0.3.3 payload should not expose wavePattern");
+  "v0.3.4 payload should not expose wavePattern");
 assert.ok(!Object.prototype.hasOwnProperty.call(payload, "concurrency"),
-  "v0.3.3 payload should not expose concurrency");
+  "v0.3.4 payload should not expose concurrency");
 
 const batchRun = createBatchRun(payload);
 assert.equal(batchRun.status.currentRound, 0);
@@ -198,7 +198,7 @@ for (let run = 0; run < SAMPLE_RUNS; run += 1) {
 // === Default to 5-10 when server omits roundSizeMin/Max/Mode ===
 const defaultsPayload = normalizeBatchPayload({
   batchId: "clb_wave_v033_defaults",
-  requiredExtensionVersion: "0.3.3",
+  requiredExtensionVersion: "0.3.4",
   candidates,
 });
 assert.equal(defaultsPayload.roundSize.min, 5);
@@ -208,7 +208,7 @@ assert.equal(defaultsPayload.roundSize.mode, "random");
 // === snake_case aliases accepted ===
 const snakePayload = normalizeBatchPayload({
   batchId: "clb_wave_v033_snake",
-  requiredExtensionVersion: "0.3.3",
+  requiredExtensionVersion: "0.3.4",
   round_size_min: 6,
   round_size_max: 9,
   round_size_mode: "random",
@@ -224,7 +224,7 @@ assert.equal(snakePayload.waveSleepMaxSeconds, 27);
 // === Impossible range normalization: max < min, min < 1, max > cap ===
 const invertedPayload = normalizeBatchPayload({
   batchId: "clb_wave_v033_inverted",
-  requiredExtensionVersion: "0.3.3",
+  requiredExtensionVersion: "0.3.4",
   roundSizeMin: 20,
   roundSizeMax: 8,
   candidates,
@@ -235,7 +235,7 @@ assert.equal(invertedPayload.roundSize.max, invertedPayload.roundSize.min,
 
 const zeroMinPayload = normalizeBatchPayload({
   batchId: "clb_wave_v033_zero",
-  requiredExtensionVersion: "0.3.3",
+  requiredExtensionVersion: "0.3.4",
   roundSizeMin: 0,
   roundSizeMax: 12,
   candidates,
@@ -245,7 +245,7 @@ assert.equal(zeroMinPayload.roundSize.max, 12);
 
 const overCapPayload = normalizeBatchPayload({
   batchId: "clb_wave_v033_overcap",
-  requiredExtensionVersion: "0.3.3",
+  requiredExtensionVersion: "0.3.4",
   roundSizeMin: 5,
   roundSizeMax: 100,
   candidates,
@@ -262,7 +262,7 @@ const overflow = Array.from({ length: 31 }, (_value, index) => ({
 assert.throws(
   () => normalizeBatchPayload({
     batchId: "clb_overflow",
-    requiredExtensionVersion: "0.3.3",
+    requiredExtensionVersion: "0.3.4",
     roundSizeMin: 5,
     roundSizeMax: 10,
     candidates: overflow,
@@ -278,7 +278,7 @@ const smallCandidates = Array.from({ length: 7 }, (_value, index) => ({
 }));
 const smallPayload = normalizeBatchPayload({
   batchId: "clb_small",
-  requiredExtensionVersion: "0.3.3",
+  requiredExtensionVersion: "0.3.4",
   roundSizeMin: 5,
   roundSizeMax: 10,
   candidates: smallCandidates,
@@ -316,7 +316,7 @@ for (let i = 0; i < 50; i += 1) {
 // === Legacy mode: explicit mode=legacy + wavePattern returns deterministic pattern ===
 const legacyPayload = normalizeBatchPayload({
   batchId: "clb_legacy",
-  requiredExtensionVersion: "0.3.3",
+  requiredExtensionVersion: "0.3.4",
   roundSizeMode: "legacy",
   wavePattern: [6, 5, 4],
   candidates,
@@ -349,6 +349,7 @@ assert.equal(inverted, 30, "max<min should clamp to max=min");
 // === Block detection: status, errorCode, and HTTP 403/429/503 ===
 assert.equal(detectBlockedResponse({ responseBody: { status: "blocked_or_captcha" } }), true);
 assert.equal(detectBlockedResponse({ responseBody: { result_status: "blocked_or_captcha" } }), true);
+assert.equal(detectBlockedResponse({ responseBody: { result: { status: "blocked_or_captcha" } } }), true);
 assert.equal(detectBlockedResponse({ responseStatus: "blocked_or_captcha" }), true);
 assert.equal(detectBlockedResponse({ errorCode: "blocked_or_captcha" }), true);
 assert.equal(detectBlockedResponse({ statusCode: 403 }), true);
@@ -411,4 +412,4 @@ assert.ok(!Object.prototype.hasOwnProperty.call(secondStart, "wavePattern"),
   "lock response should not expose wavePattern");
 setActiveBatchRunForTest(null);
 
-console.log("v0.3.3 batch runner tests passed");
+console.log("v0.3.4 batch runner tests passed");

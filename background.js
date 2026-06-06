@@ -1,4 +1,4 @@
-const EXTENSION_VERSION = "0.3.3";
+const EXTENSION_VERSION = "0.3.4";
 const SERVER_URL = "http://100.118.184.5:5000";
 const IMPORT_PATH = "/api/dedicated/coupang_apple_return_sale/detail-check/import";
 const AUTO_MODE_KEY = "autoModeEnabled";
@@ -298,12 +298,7 @@ async function runBatch(batchRun) {
     await Promise.all(waveItems.map((item) => processBatchItem(batchRun, item)));
 
     if (shouldStopBatch(batchRun)) {
-      batchRun.status.state = "stopped";
-      batchRun.status.stopReason = "blocked_or_captcha";
-      markUnstartedItemsSkipped(batchRun, "차단 감지로 미실행");
-      batchRun.status.completedAt = new Date().toISOString();
-      touchBatchStatus(batchRun);
-      await persistBatchStatus(batchRun.status);
+      await triggerBlockedBatchStop(batchRun);
       break;
     }
 
@@ -388,9 +383,7 @@ async function processBatchItem(batchRun, item) {
       }
     );
 
-    const responseStatus = response.responseBody && response.responseBody.status
-      ? response.responseBody.status
-      : "";
+    const responseStatus = extractImportResultStatus(response);
     if (!response.ok || BLOCKED_RESULT_KEYS.has(responseStatus)) {
       item.status = "failure";
       item.error = response.errorMessage || (
@@ -401,6 +394,14 @@ async function processBatchItem(batchRun, item) {
       item.errorCode = response.errorCode || responseStatus || "";
       item.statusCode = response.statusCode;
       item.responseStatus = responseStatus;
+      if (detectBlockedResponse({
+        responseBody: response.responseBody,
+        responseStatus,
+        errorCode: item.errorCode,
+        statusCode: item.statusCode
+      }) && shouldStopBatch(batchRun)) {
+        await triggerBlockedBatchStop(batchRun);
+      }
     } else {
       item.status = "success";
       item.statusCode = response.statusCode;
@@ -424,6 +425,32 @@ async function processBatchItem(batchRun, item) {
       await closeOwnedBatchTab(tabId);
     }
   }
+}
+
+async function triggerBlockedBatchStop(batchRun) {
+  if (!batchRun || typeof batchRun !== "object") {
+    return { closed: 0, skipped: 0 };
+  }
+
+  if (batchRun.stopCleanupPromise) {
+    return batchRun.stopCleanupPromise;
+  }
+
+  batchRun.stopCleanupPromise = (async () => {
+    batchRun.status.state = "stopped";
+    batchRun.status.stopReason = "blocked_or_captcha";
+    batchRun.status.nextWaveDelaySeconds = 0;
+    markUnstartedItemsSkipped(batchRun, "차단 감지로 미실행");
+    batchRun.status.completedAt = new Date().toISOString();
+    touchBatchStatus(batchRun);
+    const cleanupReport = await closeOwnedBatchTabsForBatch(batchRun.batchId);
+    batchRun.status.closedOwnedTabs = cleanupReport.closed;
+    batchRun.status.closedOwnedTabsSkipped = cleanupReport.skipped;
+    await persistBatchStatus(batchRun.status);
+    return cleanupReport;
+  })();
+
+  return batchRun.stopCleanupPromise;
 }
 
 async function markBatchFailed(batchRun, error) {
@@ -748,15 +775,36 @@ function buildInterWaveDelaySeconds(batchRun) {
   return randomDelaySeconds(batchRun.waveSleepMinSeconds, batchRun.waveSleepMaxSeconds);
 }
 
+function extractImportResultStatus(response) {
+  if (!response || typeof response !== "object") {
+    return "";
+  }
+  const responseBody = response.responseBody && typeof response.responseBody === "object"
+    ? response.responseBody
+    : null;
+  if (!responseBody) {
+    return "";
+  }
+  if (typeof responseBody.status === "string" && responseBody.status) {
+    return responseBody.status;
+  }
+  if (typeof responseBody.result_status === "string" && responseBody.result_status) {
+    return responseBody.result_status;
+  }
+  if (responseBody.result && typeof responseBody.result === "object") {
+    const nestedStatus = responseBody.result.status;
+    if (typeof nestedStatus === "string" && nestedStatus) {
+      return nestedStatus;
+    }
+  }
+  return "";
+}
+
 function detectBlockedResponse(response) {
   if (!response || typeof response !== "object") {
     return false;
   }
-  const responseBody = response.responseBody && typeof response.responseBody === "object"
-    ? response.responseBody
-    : {};
-  return BLOCKED_RESULT_KEYS.has(responseBody.status) ||
-    BLOCKED_RESULT_KEYS.has(responseBody.result_status) ||
+  return BLOCKED_RESULT_KEYS.has(extractImportResultStatus(response)) ||
     BLOCKED_RESULT_KEYS.has(response.responseStatus) ||
     BLOCKED_RESULT_KEYS.has(response.errorCode) ||
     BLOCKED_STATUS_CODES.has(response.statusCode);
@@ -830,6 +878,35 @@ async function closeOwnedBatchTab(tabId) {
       throw error;
     }
   }
+}
+
+async function closeOwnedBatchTabsForBatch(batchId) {
+  if (typeof batchId !== "string" || !batchId) {
+    return { closed: 0, skipped: 0 };
+  }
+
+  const ownedTabIds = [];
+  for (const [tabId, entry] of batchTabRegistry.entries()) {
+    if (!entry || entry.ownedByBatch !== true) {
+      continue;
+    }
+    if (entry.batchId !== batchId) {
+      continue;
+    }
+    ownedTabIds.push(tabId);
+  }
+
+  let closed = 0;
+  let skipped = 0;
+  for (const tabId of ownedTabIds) {
+    try {
+      await closeOwnedBatchTab(tabId);
+      closed += 1;
+    } catch (error) {
+      skipped += 1;
+    }
+  }
+  return { closed, skipped };
 }
 
 async function requestPayloadWithRetry(tabId, timeoutMs) {
