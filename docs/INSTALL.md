@@ -42,7 +42,7 @@ git -C /home/kth/workspace/price_monitoring_extension pull
 
 ## 4. 업데이트
 
-source를 업데이트한 뒤 브라우저 확장 목록에서 reload 버튼을 눌러야 합니다.
+source를 업데이트한 뒤 브라우저 확장 목록에서 reload 버튼을 눌러야 합니다. 압축해제 확장은 source 파일이 바뀌어도 자동 reload되지 않으므로, Brave에서는 `brave://extensions`, Chrome에서는 `chrome://extensions`에서 직접 reload를 눌러야 popup의 batch/auto-mode 동작과 새 옵션이 반영됩니다.
 
 ```bash
 git -C /home/kth/workspace/price_monitoring_extension pull
@@ -52,18 +52,19 @@ git -C /home/kth/workspace/price_monitoring_extension pull
 
 1. `brave://extensions` 또는 `chrome://extensions`를 엽니다.
 2. `Coupang Detail Import` 카드의 reload 버튼을 누릅니다.
-3. 카드 버전이 `0.3.1`으로 보이는지 확인합니다.
-4. popup을 새로 열어 서버 URL, `v0.3.1` 배지, 자동 송신 기본 OFF 상태를 확인합니다.
+3. 카드 버전이 `0.3.3`으로 보이는지 확인합니다.
+4. popup을 새로 열어 서버 URL, `v0.3.3` 배지, 자동 송신 기본 OFF 상태를 확인합니다.
 5. 필요하면 자동 송신을 다시 켜고 최근 자동 상태가 정상 표시되는지 확인합니다.
-6. current-list batch를 쓸 경우 서버 current-list 페이지도 새로고침해서 `current_list_bridge.js`가 다시 주입되게 합니다.
+6. current-list batch를 쓸 경우 서버 current-list 페이지를 새로고침해서 `current_list_bridge.js`가 다시 주입되게 합니다.
 
-## 5. v0.3.1 current-list batch 사용 전 확인
+## 5. v0.3.3 current-list batch 사용 전 확인
 
 1. 브라우저 확장을 reload합니다.
 2. `price_monitoring` current-list 페이지를 새로고침합니다.
 3. 페이지가 extension ping에 응답하지 않으면 브라우저 확장 목록에서 reload를 다시 실행합니다.
 4. popup의 `최근 current-list batch` 영역이 보이는지 확인합니다.
-5. 그 다음 current-list 페이지 버튼으로 batch를 시작합니다.
+5. current-list 페이지에서 최근 확인 제외/품절 후보 포함/force 옵션을 바꾸려면 페이지 새로고침 후 옵션이 적용되는지 확인합니다.
+6. 그 다음 current-list 페이지 버튼으로 batch를 시작합니다. 30개 후보를 넘으면 batch는 거부되고 popup에 `current-list batch는 최대 30개까지만 지원합니다.` 메시지가 노출됩니다.
 
 ## 6. 제거
 

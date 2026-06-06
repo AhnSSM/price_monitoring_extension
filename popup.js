@@ -1,6 +1,6 @@
 const SERVER_URL = "http://100.118.184.5:5000";
 const SERVER_ORIGIN = "http://100.118.184.5:5000";
-const EXTENSION_VERSION = "0.3.1";
+const EXTENSION_VERSION = "0.3.3";
 const AUTO_MODE_KEY = "autoModeEnabled";
 const AUTO_STATUS_KEY = "lastAutoStatus";
 const BATCH_STATUS_KEY = "currentListBatchStatus";
@@ -160,21 +160,53 @@ async function renderBatchState() {
   const total = Number(summary.total || 0);
   const success = Number(summary.success || 0);
   const failure = Number(summary.failure || 0) + Number(summary.timeout || 0);
+  const skipped = Number(summary.skipped || 0);
+  const blocked = Number(currentListBatchStatus.blocked || 0);
+  const state = currentListBatchStatus.state || "unknown";
   const batchId = currentListBatchStatus.batchId || "current-list";
   const updatedAt = currentListBatchStatus.updatedAt
     ? ` (${formatTimestamp(currentListBatchStatus.updatedAt)})`
     : "";
-  const stateLabel = currentListBatchStatus.state === "running" ? "진행 중" : "최근 결과";
-  const tone = currentListBatchStatus.state === "failed"
-    ? "error"
-    : currentListBatchStatus.state === "completed"
-      ? "success"
-      : "default";
+  const nextDelay = Number(currentListBatchStatus.nextWaveDelaySeconds || 0);
 
-  setBatchStatus(
-    `${stateLabel}: ${batchId} · ${completed}/${total} 완료 · 성공 ${success} · 실패 ${failure}${updatedAt}`,
-    tone
-  );
+  const header = describeBatchState(state, { nextDelay, stopReason: currentListBatchStatus.stopReason || "" });
+  const lastRoundSize = Number(currentListBatchStatus.lastRoundSize || 0);
+  const roundNote = lastRoundSize > 0 ? ` · 최근 라운드 ${lastRoundSize}개` : "";
+  const counts = `성공 ${success} · 실패 ${failure} · 건너뜀 ${skipped} · 차단 ${blocked} · ${completed}/${total} 완료`;
+  setBatchStatus(`${header} · ${batchId} · ${counts}${roundNote}${updatedAt}`, toneForState(state));
+}
+
+function describeBatchState(state, details) {
+  switch (state) {
+    case "running":
+      return "batch 진행 중";
+    case "waiting": {
+      const seconds = Math.max(0, Number(details.nextDelay || 0));
+      return `다음 라운드 대기 중 (약 ${seconds}초 뒤 자동 재개)`;
+    }
+    case "stopped": {
+      const reason = details.stopReason === "blocked_or_captcha"
+        ? "차단/캡차 감지로 자동 중단"
+        : "관리자에 의해 중단";
+      return `batch 중단됨 — ${reason}`;
+    }
+    case "completed":
+      return "batch 최근 결과";
+    case "failed":
+      return "batch 실패";
+    default:
+      return "batch 상태 알 수 없음";
+  }
+}
+
+function toneForState(state) {
+  if (state === "failed" || state === "stopped") {
+    return "error";
+  }
+  if (state === "completed") {
+    return "success";
+  }
+  return "default";
 }
 
 function setStatus(message, tone) {

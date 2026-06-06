@@ -1,4 +1,4 @@
-const EXTENSION_VERSION = "0.3.1";
+const EXTENSION_VERSION = "0.3.3";
 const SERVER_URL = "http://100.118.184.5:5000";
 const IMPORT_PATH = "/api/dedicated/coupang_apple_return_sale/detail-check/import";
 const AUTO_MODE_KEY = "autoModeEnabled";
@@ -6,10 +6,17 @@ const AUTO_STATUS_KEY = "lastAutoStatus";
 const AUTO_DEDUP_KEY = "autoDedupMetadata";
 const BATCH_STATUS_KEY = "currentListBatchStatus";
 const AUTO_DEDUP_WINDOW_MS = 10 * 60 * 1000;
-const BATCH_CANDIDATE_CAP = 15;
-const DEFAULT_BATCH_WAVE_PATTERN = [6, 5, 4];
-const MAX_BATCH_WAVE_SIZE = 6;
-const BATCH_WAVE_PAUSE_MS = 1500;
+const BATCH_CANDIDATE_CAP = 30;
+const DEFAULT_BATCH_ROUND_SIZE_MIN = 5;
+const DEFAULT_BATCH_ROUND_SIZE_MAX = 10;
+const LEGACY_BATCH_WAVE_PATTERN = [6, 5, 4];
+const MAX_BATCH_ROUND_SIZE = BATCH_CANDIDATE_CAP;
+const DEFAULT_WAVE_SLEEP_MIN_SECONDS = 10;
+const DEFAULT_WAVE_SLEEP_MAX_SECONDS = 30;
+const DEFAULT_STOP_ON_BLOCK = true;
+const DEFAULT_BLOCK_STOP_THRESHOLD = 1;
+const BLOCKED_RESULT_KEYS = new Set(["blocked_or_captcha"]);
+const BLOCKED_STATUS_CODES = new Set([403, 429, 503]);
 const TAB_LOAD_TIMEOUT_MS = 30 * 1000;
 const PAYLOAD_TIMEOUT_MS = 20 * 1000;
 const PAYLOAD_RETRY_INTERVAL_MS = 1500;
@@ -251,7 +258,7 @@ async function handleCurrentListBatchStatus() {
 async function handleCurrentListBatchStart(payload) {
   const normalizedPayload = normalizeBatchPayload(payload);
 
-  if (activeBatchRun && activeBatchRun.status.state === "running") {
+  if (activeBatchRun) {
     return {
       ok: false,
       type: "pm:batch-start-response",
@@ -277,27 +284,46 @@ async function handleCurrentListBatchStart(payload) {
     batchId: batchRun.batchId,
     accepted: batchRun.items.length,
     startedAt: batchRun.status.startedAt,
-    concurrency: batchRun.concurrency,
-    wavePattern: batchRun.wavePattern
+    roundSize: batchRun.roundSize
   };
 }
 
 async function runBatch(batchRun) {
   while (batchRun.nextIndex < batchRun.items.length) {
     const waveItems = takeNextBatchWave(batchRun);
+    batchRun.status.state = "running";
+    batchRun.status.nextWaveDelaySeconds = 0;
     touchBatchStatus(batchRun);
     await persistBatchStatus(batchRun.status);
     await Promise.all(waveItems.map((item) => processBatchItem(batchRun, item)));
 
+    if (shouldStopBatch(batchRun)) {
+      batchRun.status.state = "stopped";
+      batchRun.status.stopReason = "blocked_or_captcha";
+      markUnstartedItemsSkipped(batchRun, "차단 감지로 미실행");
+      batchRun.status.completedAt = new Date().toISOString();
+      touchBatchStatus(batchRun);
+      await persistBatchStatus(batchRun.status);
+      break;
+    }
+
     if (batchRun.nextIndex < batchRun.items.length) {
-      await delay(BATCH_WAVE_PAUSE_MS);
+      const delaySeconds = buildInterWaveDelaySeconds(batchRun);
+      batchRun.status.state = "waiting";
+      batchRun.status.nextWaveDelaySeconds = delaySeconds;
+      touchBatchStatus(batchRun);
+      await persistBatchStatus(batchRun.status);
+      await delay(delaySeconds * 1000);
     }
   }
 
-  batchRun.status.state = "completed";
-  batchRun.status.completedAt = new Date().toISOString();
-  touchBatchStatus(batchRun);
-  await persistBatchStatus(batchRun.status);
+  if (batchRun.status.state !== "stopped") {
+    batchRun.status.state = "completed";
+    batchRun.status.nextWaveDelaySeconds = 0;
+    batchRun.status.completedAt = new Date().toISOString();
+    touchBatchStatus(batchRun);
+    await persistBatchStatus(batchRun.status);
+  }
 
   if (activeBatchRun && activeBatchRun.batchId === batchRun.batchId) {
     activeBatchRun = null;
@@ -309,18 +335,24 @@ function takeNextBatchWave(batchRun) {
     return [];
   }
 
-  const wavePattern = Array.isArray(batchRun.wavePattern) && batchRun.wavePattern.length
-    ? batchRun.wavePattern
-    : DEFAULT_BATCH_WAVE_PATTERN;
-  const waveSize = wavePattern[batchRun.nextWaveIndex % wavePattern.length];
+  const roundSize = batchRun.roundSize || {
+    min: DEFAULT_BATCH_ROUND_SIZE_MIN,
+    max: DEFAULT_BATCH_ROUND_SIZE_MAX
+  };
+  const remaining = batchRun.items.length - batchRun.nextIndex;
+  const desired = (roundSize.mode === "legacy" && Array.isArray(roundSize.legacyPattern) && roundSize.legacyPattern.length)
+    ? roundSize.legacyPattern[batchRun.legacyWaveIndex % roundSize.legacyPattern.length]
+    : randomRoundSize(roundSize);
+  const size = Math.min(Math.max(1, desired), remaining);
   const startIndex = batchRun.nextIndex;
-  const endIndex = Math.min(startIndex + waveSize, batchRun.items.length);
+  const endIndex = startIndex + size;
   const waveItems = batchRun.items.slice(startIndex, endIndex);
 
   batchRun.nextIndex = endIndex;
-  batchRun.nextWaveIndex += 1;
-  batchRun.status.currentWave = batchRun.nextWaveIndex;
-  batchRun.status.waveCount = batchRun.nextWaveIndex;
+  batchRun.legacyWaveIndex = (batchRun.legacyWaveIndex || 0) + 1;
+  batchRun.status.currentRound += 1;
+  batchRun.status.roundCount += 1;
+  batchRun.status.lastRoundSize = size;
   return waveItems;
 }
 
@@ -356,17 +388,23 @@ async function processBatchItem(batchRun, item) {
       }
     );
 
-    if (!response.ok) {
+    const responseStatus = response.responseBody && response.responseBody.status
+      ? response.responseBody.status
+      : "";
+    if (!response.ok || BLOCKED_RESULT_KEYS.has(responseStatus)) {
       item.status = "failure";
-      item.error = response.errorMessage;
-      item.errorCode = response.errorCode || "";
+      item.error = response.errorMessage || (
+        BLOCKED_RESULT_KEYS.has(responseStatus)
+          ? "차단/캡차 응답이 감지되었습니다."
+          : ""
+      );
+      item.errorCode = response.errorCode || responseStatus || "";
       item.statusCode = response.statusCode;
+      item.responseStatus = responseStatus;
     } else {
       item.status = "success";
       item.statusCode = response.statusCode;
-      item.responseStatus = response.responseBody && response.responseBody.status
-        ? response.responseBody.status
-        : "saved";
+      item.responseStatus = responseStatus || "saved";
     }
   } catch (error) {
     item.status = error && error.code === "payload_timeout"
@@ -375,6 +413,8 @@ async function processBatchItem(batchRun, item) {
     item.error = error && error.message
       ? error.message
       : "배치 항목 처리에 실패했습니다.";
+    item.errorCode = error && error.code ? error.code : "";
+    item.statusCode = typeof (error && error.statusCode) === "number" ? error.statusCode : null;
   } finally {
     item.finishedAt = new Date().toISOString();
     touchBatchStatus(batchRun);
@@ -425,7 +465,28 @@ function normalizeBatchPayload(payload) {
     throw new Error(`current-list batch는 최대 ${BATCH_CANDIDATE_CAP}개까지만 지원합니다.`);
   }
 
-  const wavePattern = normalizeWavePattern(payload.wavePattern || payload.wave_pattern);
+  const roundSize = normalizeRoundSize({
+    roundSizeMin: payload.roundSizeMin !== undefined ? payload.roundSizeMin : payload.round_size_min,
+    roundSizeMax: payload.roundSizeMax !== undefined ? payload.roundSizeMax : payload.round_size_max,
+    roundSizeMode: payload.roundSizeMode !== undefined ? payload.roundSizeMode : payload.round_size_mode,
+    wavePattern: payload.wavePattern !== undefined ? payload.wavePattern : payload.wave_pattern
+  }, normalizedCandidates.length);
+  const waveSleepMinSeconds = normalizeSleepBound(
+    payload.waveSleepMinSeconds !== undefined ? payload.waveSleepMinSeconds : payload.wave_sleep_min_seconds,
+    DEFAULT_WAVE_SLEEP_MIN_SECONDS
+  );
+  const waveSleepMaxSeconds = normalizeSleepBound(
+    payload.waveSleepMaxSeconds !== undefined ? payload.waveSleepMaxSeconds : payload.wave_sleep_max_seconds,
+    DEFAULT_WAVE_SLEEP_MAX_SECONDS
+  );
+  const stopOnBlock = normalizeBooleanOption(
+    payload.stopOnBlock !== undefined ? payload.stopOnBlock : payload.stop_on_block,
+    DEFAULT_STOP_ON_BLOCK
+  );
+  const blockStopThreshold = normalizeBlockStopThreshold(
+    payload.blockStopThreshold !== undefined ? payload.blockStopThreshold : payload.block_stop_threshold,
+    DEFAULT_BLOCK_STOP_THRESHOLD
+  );
 
   return {
     batchId: typeof payload.batchId === "string" && payload.batchId.trim()
@@ -434,8 +495,11 @@ function normalizeBatchPayload(payload) {
     requiredVersion,
     serverUrl: SERVER_URL,
     importPath: IMPORT_PATH,
-    wavePattern,
-    concurrency: Math.max(...wavePattern),
+    roundSize,
+    waveSleepMinSeconds,
+    waveSleepMaxSeconds,
+    stopOnBlock,
+    blockStopThreshold,
     candidates: normalizedCandidates
   };
 }
@@ -467,17 +531,110 @@ function normalizeCandidate(candidate) {
   };
 }
 
-function normalizeWavePattern(value) {
-  if (!Array.isArray(value)) {
-    return [...DEFAULT_BATCH_WAVE_PATTERN];
+function normalizeRoundSize(input, candidateCap) {
+  const fallback = {
+    min: DEFAULT_BATCH_ROUND_SIZE_MIN,
+    max: DEFAULT_BATCH_ROUND_SIZE_MAX
+  };
+
+  const explicitMin = parsePositiveInt(
+    input && (input.roundSizeMin !== undefined ? input.roundSizeMin : undefined)
+  );
+  const explicitMax = parsePositiveInt(
+    input && (input.roundSizeMax !== undefined ? input.roundSizeMax : undefined)
+  );
+  const mode = (() => {
+    if (!input) return "random";
+    const raw = input.roundSizeMode !== undefined ? input.roundSizeMode : undefined;
+    if (typeof raw !== "string") return "random";
+    const normalized = raw.trim().toLowerCase();
+    if (!normalized) return "random";
+    return normalized;
+  })();
+
+  // Legacy fallback only: when the page still sends the old wavePattern field and no
+  // explicit round size min/max, keep a deterministic pattern so v0.3.1 callers still
+  // observe the prior 6-5-4 cadence. New v0.3.3 clients should send roundSizeMin/Max.
+  if (explicitMin === null && explicitMax === null) {
+    const legacyPattern = Array.isArray(input && input.wavePattern) ? input.wavePattern : null;
+    if (mode === "legacy" && legacyPattern) {
+      const cleaned = legacyPattern
+        .map((item) => parsePositiveInt(item))
+        .filter((item) => item !== null)
+        .map((item) => Math.min(item, MAX_BATCH_ROUND_SIZE));
+      if (cleaned.length) {
+        return {
+          min: cleaned[0],
+          max: cleaned[cleaned.length - 1],
+          mode: "legacy",
+          legacyPattern: cleaned
+        };
+      }
+    }
   }
 
-  const normalized = value
-    .map((item) => Number.parseInt(item, 10))
-    .filter((item) => Number.isFinite(item) && item > 0)
-    .map((item) => Math.min(item, MAX_BATCH_WAVE_SIZE));
+  let min = explicitMin !== null ? explicitMin : fallback.min;
+  let max = explicitMax !== null ? explicitMax : fallback.max;
 
-  return normalized.length ? normalized : [...DEFAULT_BATCH_WAVE_PATTERN];
+  if (min < 1) min = fallback.min;
+  if (max < min) max = min;
+  const cap = Math.max(1, Math.min(MAX_BATCH_ROUND_SIZE, candidateCap || BATCH_CANDIDATE_CAP));
+  if (max > cap) max = cap;
+  if (min > cap) min = cap;
+
+  return {
+    min,
+    max,
+    mode: "random"
+  };
+}
+
+function parsePositiveInt(value) {
+  if (value === null || value === undefined) return null;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return null;
+  return parsed;
+}
+
+function randomRoundSize(roundSize) {
+  const min = roundSize.min;
+  const max = Math.max(min, roundSize.max);
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
+function normalizeSleepBound(value, defaultValue) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return defaultValue;
+  }
+  return parsed;
+}
+
+function normalizeBlockStopThreshold(value, defaultValue) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return defaultValue;
+  }
+  return parsed;
+}
+
+function normalizeBooleanOption(value, defaultValue) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(normalized)) {
+      return true;
+    }
+    if (["0", "false", "no", "off"].includes(normalized)) {
+      return false;
+    }
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  return defaultValue;
 }
 
 function createBatchRun(payload) {
@@ -492,15 +649,24 @@ function createBatchRun(payload) {
     finishedAt: null
   }));
 
+  const roundSize = payload.roundSize || {
+    min: DEFAULT_BATCH_ROUND_SIZE_MIN,
+    max: DEFAULT_BATCH_ROUND_SIZE_MAX
+  };
+
   return {
     batchId: payload.batchId,
     serverUrl: payload.serverUrl,
     importPath: payload.importPath,
-    wavePattern: payload.wavePattern,
-    concurrency: Math.max(...payload.wavePattern),
+    roundSize,
+    waveSleepMinSeconds: payload.waveSleepMinSeconds,
+    waveSleepMaxSeconds: payload.waveSleepMaxSeconds,
+    stopOnBlock: payload.stopOnBlock,
+    blockStopThreshold: payload.blockStopThreshold,
     items,
     nextIndex: 0,
-    nextWaveIndex: 0,
+    legacyWaveIndex: 0,
+    blockCount: 0,
     status: {
       batchId: payload.batchId,
       state: "running",
@@ -508,10 +674,18 @@ function createBatchRun(payload) {
       updatedAt: startedAt,
       completedAt: null,
       extensionVersion: EXTENSION_VERSION,
-      concurrency: Math.max(...payload.wavePattern),
-      wavePattern: payload.wavePattern,
-      currentWave: 0,
-      waveCount: 0,
+      roundSize,
+      waveSleepMinSeconds: payload.waveSleepMinSeconds,
+      waveSleepMaxSeconds: payload.waveSleepMaxSeconds,
+      stopOnBlock: payload.stopOnBlock,
+      blockStopThreshold: payload.blockStopThreshold,
+      currentRound: 0,
+      roundCount: 0,
+      lastRoundSize: 0,
+      nextWaveDelaySeconds: 0,
+      stopReason: "",
+      skipped: 0,
+      blocked: 0,
       candidateCount: items.length,
       summary: buildBatchSummary(items),
       items: cloneBatchItems(items)
@@ -522,6 +696,8 @@ function createBatchRun(payload) {
 function touchBatchStatus(batchRun) {
   batchRun.status.updatedAt = new Date().toISOString();
   batchRun.status.summary = buildBatchSummary(batchRun.items);
+  batchRun.status.skipped = batchRun.status.summary.skipped;
+  batchRun.status.blocked = countBlockedItems(batchRun.items);
   batchRun.status.items = cloneBatchItems(batchRun.items);
 }
 
@@ -531,7 +707,8 @@ function buildBatchSummary(items) {
     running: 0,
     success: 0,
     failure: 0,
-    timeout: 0
+    timeout: 0,
+    skipped: 0
   };
 
   for (const item of items) {
@@ -540,7 +717,7 @@ function buildBatchSummary(items) {
     }
   }
 
-  summary.completed = summary.success + summary.failure + summary.timeout;
+  summary.completed = summary.success + summary.failure + summary.timeout + summary.skipped;
   summary.total = items.length;
   return summary;
 }
@@ -559,6 +736,64 @@ function cloneBatchItems(items) {
     statusCode: typeof item.statusCode === "number" ? item.statusCode : null,
     responseStatus: item.responseStatus || ""
   }));
+}
+
+function randomDelaySeconds(minSeconds, maxSeconds) {
+  const min = Math.max(0, Number.parseInt(minSeconds, 10) || 0);
+  const max = Math.max(min, Number.parseInt(maxSeconds, 10) || min);
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
+function buildInterWaveDelaySeconds(batchRun) {
+  return randomDelaySeconds(batchRun.waveSleepMinSeconds, batchRun.waveSleepMaxSeconds);
+}
+
+function detectBlockedResponse(response) {
+  if (!response || typeof response !== "object") {
+    return false;
+  }
+  const responseBody = response.responseBody && typeof response.responseBody === "object"
+    ? response.responseBody
+    : {};
+  return BLOCKED_RESULT_KEYS.has(responseBody.status) ||
+    BLOCKED_RESULT_KEYS.has(responseBody.result_status) ||
+    BLOCKED_RESULT_KEYS.has(response.responseStatus) ||
+    BLOCKED_RESULT_KEYS.has(response.errorCode) ||
+    BLOCKED_STATUS_CODES.has(response.statusCode);
+}
+
+function countBlockedItems(items) {
+  return items.reduce((count, item) => count + (detectBlockedResponse(item) ? 1 : 0), 0);
+}
+
+function shouldStopBatch(batchRun, options = null) {
+  const stopOnBlock = options && Object.prototype.hasOwnProperty.call(options, "stopOnBlock")
+    ? options.stopOnBlock
+    : batchRun.stopOnBlock;
+  if (!stopOnBlock) {
+    return false;
+  }
+  const blockStopThreshold = options && options.blockStopThreshold
+    ? options.blockStopThreshold
+    : batchRun.blockStopThreshold;
+  const blocked = countBlockedItems(batchRun.items);
+  batchRun.blockCount = blocked;
+  batchRun.status.blocked = blocked;
+  return blocked >= blockStopThreshold;
+}
+
+function markUnstartedItemsSkipped(batchRun, reason) {
+  let skipped = 0;
+  for (const item of batchRun.items) {
+    if (item.status === "pending") {
+      item.status = "skipped";
+      item.error = reason || "미실행";
+      item.finishedAt = new Date().toISOString();
+      skipped += 1;
+    }
+  }
+  touchBatchStatus(batchRun);
+  return skipped;
 }
 
 async function getLatestBatchStatus() {
