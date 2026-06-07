@@ -1,4 +1,4 @@
-const EXTENSION_VERSION = "0.3.4";
+const EXTENSION_VERSION = "0.3.5";
 const SERVER_URL = "http://100.118.184.5:5000";
 const IMPORT_PATH = "/api/dedicated/coupang_apple_return_sale/detail-check/import";
 const AUTO_MODE_KEY = "autoModeEnabled";
@@ -13,6 +13,9 @@ const LEGACY_BATCH_WAVE_PATTERN = [6, 5, 4];
 const MAX_BATCH_ROUND_SIZE = BATCH_CANDIDATE_CAP;
 const DEFAULT_WAVE_SLEEP_MIN_SECONDS = 10;
 const DEFAULT_WAVE_SLEEP_MAX_SECONDS = 30;
+const DEFAULT_TAB_OPEN_DELAY_MIN_SECONDS = 0.3;
+const DEFAULT_TAB_OPEN_DELAY_MAX_SECONDS = 1.0;
+const MAX_TAB_OPEN_DELAY_SECONDS = 5.0;
 const DEFAULT_STOP_ON_BLOCK = true;
 const DEFAULT_BLOCK_STOP_THRESHOLD = 1;
 const BLOCKED_RESULT_KEYS = new Set(["blocked_or_captcha"]);
@@ -295,7 +298,7 @@ async function runBatch(batchRun) {
     batchRun.status.nextWaveDelaySeconds = 0;
     touchBatchStatus(batchRun);
     await persistBatchStatus(batchRun.status);
-    await Promise.all(waveItems.map((item) => processBatchItem(batchRun, item)));
+    await processBatchRound(batchRun, waveItems);
 
     if (shouldStopBatch(batchRun)) {
       await triggerBlockedBatchStop(batchRun);
@@ -514,6 +517,10 @@ function normalizeBatchPayload(payload) {
     payload.blockStopThreshold !== undefined ? payload.blockStopThreshold : payload.block_stop_threshold,
     DEFAULT_BLOCK_STOP_THRESHOLD
   );
+  const tabOpenDelayBounds = normalizeTabOpenDelayBounds(
+    payload.tabOpenDelayMinSeconds !== undefined ? payload.tabOpenDelayMinSeconds : payload.tab_open_delay_min_seconds,
+    payload.tabOpenDelayMaxSeconds !== undefined ? payload.tabOpenDelayMaxSeconds : payload.tab_open_delay_max_seconds
+  );
 
   return {
     batchId: typeof payload.batchId === "string" && payload.batchId.trim()
@@ -525,6 +532,8 @@ function normalizeBatchPayload(payload) {
     roundSize,
     waveSleepMinSeconds,
     waveSleepMaxSeconds,
+    tabOpenDelayMinSeconds: tabOpenDelayBounds.min,
+    tabOpenDelayMaxSeconds: tabOpenDelayBounds.max,
     stopOnBlock,
     blockStopThreshold,
     candidates: normalizedCandidates
@@ -688,6 +697,8 @@ function createBatchRun(payload) {
     roundSize,
     waveSleepMinSeconds: payload.waveSleepMinSeconds,
     waveSleepMaxSeconds: payload.waveSleepMaxSeconds,
+    tabOpenDelayMinSeconds: payload.tabOpenDelayMinSeconds,
+    tabOpenDelayMaxSeconds: payload.tabOpenDelayMaxSeconds,
     stopOnBlock: payload.stopOnBlock,
     blockStopThreshold: payload.blockStopThreshold,
     items,
@@ -704,6 +715,9 @@ function createBatchRun(payload) {
       roundSize,
       waveSleepMinSeconds: payload.waveSleepMinSeconds,
       waveSleepMaxSeconds: payload.waveSleepMaxSeconds,
+      tabOpenDelayMinSeconds: payload.tabOpenDelayMinSeconds,
+      tabOpenDelayMaxSeconds: payload.tabOpenDelayMaxSeconds,
+      nextTabOpenDelaySeconds: 0,
       stopOnBlock: payload.stopOnBlock,
       blockStopThreshold: payload.blockStopThreshold,
       currentRound: 0,
@@ -773,6 +787,60 @@ function randomDelaySeconds(minSeconds, maxSeconds) {
 
 function buildInterWaveDelaySeconds(batchRun) {
   return randomDelaySeconds(batchRun.waveSleepMinSeconds, batchRun.waveSleepMaxSeconds);
+}
+
+function normalizeTabOpenDelayBounds(rawMin, rawMax) {
+  const parsedMin = Number.parseFloat(rawMin);
+  const parsedMax = Number.parseFloat(rawMax);
+  let min = Number.isFinite(parsedMin) && parsedMin >= 0 ? parsedMin : DEFAULT_TAB_OPEN_DELAY_MIN_SECONDS;
+  let max = Number.isFinite(parsedMax) && parsedMax >= 0 ? parsedMax : DEFAULT_TAB_OPEN_DELAY_MAX_SECONDS;
+  if (min < DEFAULT_TAB_OPEN_DELAY_MIN_SECONDS) {
+    min = DEFAULT_TAB_OPEN_DELAY_MIN_SECONDS;
+  }
+  if (max < min) {
+    max = min;
+  }
+  if (max > MAX_TAB_OPEN_DELAY_SECONDS) {
+    max = MAX_TAB_OPEN_DELAY_SECONDS;
+  }
+  return { min, max };
+}
+
+function buildTabOpenDelaySeconds(batchRun) {
+  const bounds = normalizeTabOpenDelayBounds(
+    batchRun && batchRun.tabOpenDelayMinSeconds,
+    batchRun && batchRun.tabOpenDelayMaxSeconds
+  );
+  const lower = bounds.min;
+  const upper = bounds.max;
+  if (upper <= lower) {
+    return lower;
+  }
+  return lower + Math.random() * (upper - lower);
+}
+
+async function processBatchRound(batchRun, waveItems) {
+  const promises = [];
+  for (let index = 0; index < waveItems.length; index += 1) {
+    if (shouldStopBatch(batchRun)) {
+      break;
+    }
+    promises.push(processBatchItem(batchRun, waveItems[index]));
+    if (index < waveItems.length - 1) {
+      const delaySeconds = buildTabOpenDelaySeconds(batchRun);
+      batchRun.status.nextTabOpenDelaySeconds = delaySeconds;
+      touchBatchStatus(batchRun);
+      await persistBatchStatus(batchRun.status);
+      await delay(delaySeconds * 1000);
+    }
+  }
+  if (promises.length === 0) {
+    return;
+  }
+  await Promise.all(promises);
+  batchRun.status.nextTabOpenDelaySeconds = 0;
+  touchBatchStatus(batchRun);
+  await persistBatchStatus(batchRun.status);
 }
 
 function extractImportResultStatus(response) {

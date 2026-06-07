@@ -4,7 +4,7 @@
 
 사용자가 직접 연 `https://www.coupang.com/vp/products/*` 상품 상세 페이지에서 보이는 텍스트만 수집해 `price_monitoring` 서버의 detail import API로 전송합니다. 공식 웹스토어 배포 없이 GitHub repo를 받아 압축해제 확장 프로그램으로 설치하는 방식입니다.
 
-현재 소스 기준 버전은 `price_monitoring_extension v0.3.4`이며, 서버 `price_monitoring v0.1.14`의 current-list batch/자동 송신 호환 계약을 맞춥니다. `v0.3.4`에서는 상단 30개 후보까지 받는 batch runner, 각 라운드 5-10개 사이 랜덤 크기 (서버에서 `roundSizeMin`/`roundSizeMax` 받음) 와 라운드 사이 10-30초 랜덤 인터-라운드 대기, 마지막 라운드 남은 후보 수 자동 clamp, 차단/캡차 감지 시 batch 자동 중단(`stop-on-block`), 그리고 current-list 페이지의 갱신 옵션과 force 모드를 지원합니다.
+현재 소스 기준 버전은 `price_monitoring_extension v0.3.5`이며, 서버 `price_monitoring v0.1.14+`의 current-list batch/자동 송신 호환 계약을 맞춥니다. `v0.3.5`에서는 상단 30개 후보까지 받는 batch runner, 각 라운드 5-10개 사이 랜덤 크기 (서버에서 `roundSizeMin`/`roundSizeMax` 받음), 첫 탭 이후 각 탭 사이 0.3-1.0초 랜덤 간격 순차 오픈, 라운드 사이 10-30초 랜덤 인터-라운드 대기, 마지막 라운드 남은 후보 수 자동 clamp, 차단/캡차 감지 시 batch 자동 중단(`stop-on-block`), 그리고 current-list 페이지의 갱신 옵션과 force 모드를 지원합니다.
 
 ## 빠른 시작
 
@@ -18,7 +18,7 @@ git clone git@github.com:AhnSSM/price_monitoring_extension.git
 4. 이 repo root, 즉 `price_monitoring_extension` 폴더를 선택합니다.
 5. popup에 표시되는 서버 URL(`http://100.118.184.5:5000`)이 본인 운영 Tailscale server origin과 같은지 확인합니다.
 6. 자동 송신은 기본 OFF이므로, 필요할 때 popup에서 켜고 최근 자동 송신 상태를 확인합니다.
-7. `v0.3.4`에서는 서버 current-list 페이지의 `갱신 필요 상품 확인`/`상단 30개 강제 갱신` 버튼이 extension batch runner를 호출합니다. 소스/옵션을 갱신했으면 `brave://extensions`의 reload 버튼을 먼저 누르고, 그다음 서버 current-list 페이지를 새로고침해 `current_list_bridge.js`를 재주입합니다.
+7. `v0.3.5`에서는 서버 current-list 페이지의 `갱신 필요 상품 확인`/`상단 30개 강제 갱신` 버튼이 extension batch runner를 호출합니다. 소스/옵션을 갱신했으면 `brave://extensions`의 reload 버튼을 먼저 누르고, 그다음 서버 current-list 페이지를 새로고침해 `current_list_bridge.js`를 재주입합니다.
 
 Chrome도 같은 방식이며 주소만 `chrome://extensions`입니다.
 
@@ -30,17 +30,18 @@ Tailscale IP 또는 MagicDNS hostname이 바뀌면 `manifest.json`의 `host_perm
 
 ## current-list batch runner
 
-`v0.3.0`부터 primary trigger는 popup이 아니라 서버 current-list 페이지입니다. `v0.3.4`는 상단 최대 30개 후보를 받으면 라운드마다 5-10개 사이 랜덤 크기로 처리하고, 라운드 사이에 10-30초 사이 랜덤 inter-round wait를 둡니다. 마지막 라운드는 남은 후보 수로 자동 clamp 됩니다.
+`v0.3.0`부터 primary trigger는 popup이 아니라 서버 current-list 페이지입니다. `v0.3.5`는 상단 최대 30개 후보를 받으면 라운드마다 5-10개 사이 랜덤 크기로 처리하고, 첫 탭 이후 각 탭 사이에는 0.3-1.0초 사이 랜덤 간격을 둔 뒤 다음 탭을 열며, 라운드 사이에는 10-30초 사이 랜덤 inter-round wait를 둡니다. 마지막 라운드는 남은 후보 수로 자동 clamp 됩니다.
 
 1. `price_monitoring` current-list 페이지가 `window.postMessage`로 extension bridge에 `pm:ping`을 보냅니다.
 2. `current_list_bridge.js`가 `pm:batch-start`/`pm:batch-status` 요청을 background service worker로 전달합니다.
 3. background는 최대 30개 candidate를 받아 매 라운드 5-10개 사이 랜덤 크기로 열고, extension이 만든 탭만 추적합니다.
 4. 각 탭의 `content.js`에서 explicit payload를 받아 기존 import API로 `source: "auto_page_view"` POST를 보냅니다.
-5. 라운드 사이에는 10-30초 사이 랜덤 시간을 쉬고, 이 동안 popup의 `최근 current-list batch` 영역은 `다음 라운드 대기 중 (약 N초 뒤 자동 재개)`로 표시됩니다.
-6. 후보 응답이 `blocked_or_captcha` 또는 HTTP 403/429/503으로 들어오면 batch는 즉시 `stopped` 상태가 되고 나머지 미실행 항목은 `skipped`로 분류됩니다.
-7. batch가 연 탭만 닫고 최근 transient 상태를 `chrome.storage.local`에 저장합니다.
+5. 첫 탭 이후 다음 탭은 0.3-1.0초 사이 랜덤 간격으로 순차 오픈됩니다. 라운드 안의 탭 처리는 열린 뒤에는 기존처럼 병렬로 진행될 수 있지만, 브라우저에는 5-10개 `tabs.create`가 같은 순간에 몰리지 않습니다.
+6. 라운드 사이에는 10-30초 사이 랜덤 시간을 쉬고, 이 동안 popup의 `최근 current-list batch` 영역은 `다음 라운드 대기 중 (약 N초 뒤 자동 재개)`로 표시됩니다.
+7. 후보 응답이 `blocked_or_captcha` 또는 HTTP 403/429/503으로 들어오면 batch는 즉시 `stopped` 상태가 되고 나머지 미실행 항목은 `skipped`로 분류됩니다.
+8. batch가 연 탭만 닫고 최근 transient 상태를 `chrome.storage.local`에 저장합니다.
 
-`v0.3.4`에서 추가된 current-list 페이지 옵션:
+`v0.3.5`에서도 유지되는 current-list 페이지 옵션:
 
 - `최근 확인 제외`: 기본 3시간입니다. 최근 detail 확인이 있는 일반 후보는 제외하고, 끄면 freshness 제외 없이 후보를 계산합니다.
 - `품절 후보 포함`: 기본 OFF입니다. 최근 확인된 품절 후보까지 다시 확인하고 싶을 때 켭니다.
@@ -59,6 +60,7 @@ Tailscale IP 또는 MagicDNS hostname이 바뀌면 `manifest.json`의 `host_perm
 
 ## 변경 기록
 
+- `v0.3.5`: current-list batch가 한 라운드 안에서 탭을 동시에 몰아 열지 않고 첫 탭 이후 각 탭 사이를 0.3-1.0초 랜덤 간격으로 순차 오픈합니다. 상태 surface에 `tabOpenDelayMinSeconds`/`tabOpenDelayMaxSeconds`/`nextTabOpenDelaySeconds`를 추가했고, 기존 30-상한/라운드 5-10 랜덤/10-30초 인터-라운드/stop-on-block/same-batch owned tab cleanup 동작은 유지됩니다. 변경 후 Brave/Chrome 확장 목록에서 reload 필요.
 - `v0.3.4`: nested server success payload `result.status`까지 차단 신호로 인식하고, 차단 감지 즉시 같은 active batch가 연 owned 탭 sibling까지 정리하며 미실행 항목을 `skipped`로 마감합니다. 기존 30-상한/라운드 5-10 랜덤/10-30초 인터-라운드/stop-on-block 동작은 유지됩니다. 변경 후 Brave/Chrome 확장 목록에서 reload 필요.
 - `v0.3.3`: 고정 6-5-4 웨이브 패턴 제거, 각 라운드 5-10개 사이 랜덤 크기 (서버 `roundSizeMin`/`roundSizeMax`/`roundSizeMode` 수용, 기본 5-10 랜덤), 마지막 라운드는 남은 후보 수로 자동 clamp. 상태 surface는 `wavePattern`/`currentWave`/`waveCount`/`concurrency` 대신 `roundSize`/`currentRound`/`roundCount`/`lastRoundSize`를 노출. 기존 `wavePattern`은 호환 fallback 필드로만 유지하며 active 동작으로 안내하지 않습니다. 변경 후 Brave/Chrome 확장 목록에서 reload 필요.
 - `v0.3.2`: batch 후보 상한 15 -> 30, 인터-웨이브 10-30초 랜덤 대기, 차단/캡차 감지 시 자동 중단(`stop-on-block`), 미실행 항목 `skipped` 분류, current-list 페이지의 freshness/품절 후보/force 옵션 지원, popup `최근 current-list batch`가 진행 중/대기/중단/최근 결과/실패를 구분해서 보여 줌.
@@ -81,7 +83,7 @@ Tailscale IP 또는 MagicDNS hostname이 바뀌면 `manifest.json`의 `host_perm
 - `popup.js`: 수동 저장, 자동 송신 토글, batch waiting/stopped/skipped/completed 상태 렌더링.
 - `content.js`: 지원 상품 상세 페이지에서 자동 송신 payload를 만들고 background에 전달하며 batch 요청 시 explicit payload도 반환.
 - `current_list_bridge.js`: 서버 current-list 페이지와 background 간 `window.postMessage` bridge.
-- `background.js`: import API POST, version metadata, duplicate suppression, current-list batch runner (v0.3.4 nested blocked 감지/즉시 sibling cleanup 포함), 최근 상태 저장.
+- `background.js`: import API POST, version metadata, duplicate suppression, current-list batch runner (v0.3.5 staggered tab open, v0.3.4 nested blocked 감지/즉시 sibling cleanup 포함), 최근 상태 저장.
 - `docs/`: 설치, 설정, 운영, 문제 해결, 개발 검증 문서.
 
 ## LLM에게 설치를 맡길 때
@@ -100,14 +102,14 @@ Tailscale IP 또는 MagicDNS hostname이 바뀌면 `manifest.json`의 `host_perm
 
 자동/수동 import 요청은 아래 metadata와 본문만 전송합니다.
 
-- `extension_version: "0.3.4"`
+- `extension_version: "0.3.5"`
 - `source: "manual_popup"` 또는 `"auto_page_view"`
 - `url`
 - `final_url`
 - `title`
 - `text` from `document.body.innerText`
 
-진단용으로 `X-Price-Monitoring-Extension-Version: 0.3.4` header를 함께 보냅니다.
+진단용으로 `X-Price-Monitoring-Extension-Version: 0.3.5` header를 함께 보냅니다.
 
 수집하지 않는 항목:
 

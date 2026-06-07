@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Coupang Detail Import",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Import the current Coupang product page into the local detail-check pipeline.",
   "permissions": [
     "activeTab",

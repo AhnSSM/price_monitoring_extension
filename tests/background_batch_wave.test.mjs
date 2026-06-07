@@ -12,10 +12,23 @@ const listeners = {
   tabUpdated: [],
 };
 
+const scheduledDelays = [];
+const createdTabs = [];
+const recordSetTimeout = (handler, ms, ...rest) => {
+  const numericMs = Number(ms);
+  if (Number.isFinite(numericMs)) {
+    scheduledDelays.push(numericMs);
+  }
+  return setTimeout(handler, ms, ...rest);
+};
+const getScheduledDelaysForTest = () => scheduledDelays.slice();
+const resetScheduledDelaysForTest = () => { scheduledDelays.length = 0; };
+const getCreatedTabsForTest = () => createdTabs.slice();
+const resetCreatedTabsForTest = () => { createdTabs.length = 0; };
 const sandbox = {
   console,
   fetch: async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }),
-  setTimeout,
+  setTimeout: recordSetTimeout,
   clearTimeout,
   URL,
   Math,
@@ -36,7 +49,15 @@ const sandbox = {
         addListener: (listener) => listeners.tabUpdated.push(listener),
         removeListener: () => {},
       },
-      get: () => {},
+      create: (createProperties, callback) => {
+        createdTabs.push(createProperties);
+        callback({ id: 9000 + createdTabs.length });
+      },
+      get: (_tabId, callback) => { if (typeof callback === "function") callback({ id: _tabId, status: "complete" }); },
+      remove: (_tabId, callback) => { if (typeof callback === "function") callback(); },
+      sendMessage: () => {
+        throw new Error("stop_payload_retry_for_test");
+      },
     },
     storage: {
       local: {
@@ -46,6 +67,11 @@ const sandbox = {
     },
   },
 };
+
+sandbox.getScheduledDelaysForTest = getScheduledDelaysForTest;
+sandbox.resetScheduledDelaysForTest = resetScheduledDelaysForTest;
+sandbox.getCreatedTabsForTest = getCreatedTabsForTest;
+sandbox.resetCreatedTabsForTest = resetCreatedTabsForTest;
 
 vm.createContext(sandbox);
 vm.runInContext(
@@ -72,6 +98,9 @@ globalThis.__batchTestExports = {
   buildInterWaveDelaySeconds,
   markUnstartedItemsSkipped,
   setActiveBatchRunForTest: (batchRun) => { activeBatchRun = batchRun; },
+  buildTabOpenDelaySeconds,
+  processBatchRound,
+  processBatchItem,
 };
 `,
   sandbox,
@@ -100,10 +129,12 @@ const {
   buildInterWaveDelaySeconds,
   markUnstartedItemsSkipped,
   setActiveBatchRunForTest,
+  buildTabOpenDelaySeconds,
+  processBatchRound,
 } = sandbox.__batchTestExports;
 
 // === Version, cap, and defaults ===
-assert.equal(EXTENSION_VERSION, "0.3.4");
+assert.equal(EXTENSION_VERSION, "0.3.5");
 assert.equal(BATCH_CANDIDATE_CAP, 30);
 assert.equal(DEFAULT_BATCH_ROUND_SIZE_MIN, 5);
 assert.equal(DEFAULT_BATCH_ROUND_SIZE_MAX, 10);
@@ -126,7 +157,7 @@ const candidates = Array.from({ length: 30 }, (_value, index) => {
 
 const payload = normalizeBatchPayload({
   batchId: "clb_wave_v033",
-  requiredExtensionVersion: "0.3.4",
+  requiredExtensionVersion: "0.3.5",
   roundSizeMin: 5,
   roundSizeMax: 10,
   roundSizeMode: "random",
@@ -146,9 +177,9 @@ assert.equal(payload.waveSleepMaxSeconds, 30);
 assert.equal(payload.stopOnBlock, true);
 assert.equal(payload.blockStopThreshold, 1);
 assert.ok(!Object.prototype.hasOwnProperty.call(payload, "wavePattern"),
-  "v0.3.4 payload should not expose wavePattern");
+  "v0.3.5 payload should not expose wavePattern");
 assert.ok(!Object.prototype.hasOwnProperty.call(payload, "concurrency"),
-  "v0.3.4 payload should not expose concurrency");
+  "v0.3.5 payload should not expose concurrency");
 
 const batchRun = createBatchRun(payload);
 assert.equal(batchRun.status.currentRound, 0);
@@ -198,7 +229,7 @@ for (let run = 0; run < SAMPLE_RUNS; run += 1) {
 // === Default to 5-10 when server omits roundSizeMin/Max/Mode ===
 const defaultsPayload = normalizeBatchPayload({
   batchId: "clb_wave_v033_defaults",
-  requiredExtensionVersion: "0.3.4",
+  requiredExtensionVersion: "0.3.5",
   candidates,
 });
 assert.equal(defaultsPayload.roundSize.min, 5);
@@ -208,7 +239,7 @@ assert.equal(defaultsPayload.roundSize.mode, "random");
 // === snake_case aliases accepted ===
 const snakePayload = normalizeBatchPayload({
   batchId: "clb_wave_v033_snake",
-  requiredExtensionVersion: "0.3.4",
+  requiredExtensionVersion: "0.3.5",
   round_size_min: 6,
   round_size_max: 9,
   round_size_mode: "random",
@@ -224,7 +255,7 @@ assert.equal(snakePayload.waveSleepMaxSeconds, 27);
 // === Impossible range normalization: max < min, min < 1, max > cap ===
 const invertedPayload = normalizeBatchPayload({
   batchId: "clb_wave_v033_inverted",
-  requiredExtensionVersion: "0.3.4",
+  requiredExtensionVersion: "0.3.5",
   roundSizeMin: 20,
   roundSizeMax: 8,
   candidates,
@@ -235,7 +266,7 @@ assert.equal(invertedPayload.roundSize.max, invertedPayload.roundSize.min,
 
 const zeroMinPayload = normalizeBatchPayload({
   batchId: "clb_wave_v033_zero",
-  requiredExtensionVersion: "0.3.4",
+  requiredExtensionVersion: "0.3.5",
   roundSizeMin: 0,
   roundSizeMax: 12,
   candidates,
@@ -245,7 +276,7 @@ assert.equal(zeroMinPayload.roundSize.max, 12);
 
 const overCapPayload = normalizeBatchPayload({
   batchId: "clb_wave_v033_overcap",
-  requiredExtensionVersion: "0.3.4",
+  requiredExtensionVersion: "0.3.5",
   roundSizeMin: 5,
   roundSizeMax: 100,
   candidates,
@@ -262,7 +293,7 @@ const overflow = Array.from({ length: 31 }, (_value, index) => ({
 assert.throws(
   () => normalizeBatchPayload({
     batchId: "clb_overflow",
-    requiredExtensionVersion: "0.3.4",
+    requiredExtensionVersion: "0.3.5",
     roundSizeMin: 5,
     roundSizeMax: 10,
     candidates: overflow,
@@ -278,7 +309,7 @@ const smallCandidates = Array.from({ length: 7 }, (_value, index) => ({
 }));
 const smallPayload = normalizeBatchPayload({
   batchId: "clb_small",
-  requiredExtensionVersion: "0.3.4",
+  requiredExtensionVersion: "0.3.5",
   roundSizeMin: 5,
   roundSizeMax: 10,
   candidates: smallCandidates,
@@ -316,7 +347,7 @@ for (let i = 0; i < 50; i += 1) {
 // === Legacy mode: explicit mode=legacy + wavePattern returns deterministic pattern ===
 const legacyPayload = normalizeBatchPayload({
   batchId: "clb_legacy",
-  requiredExtensionVersion: "0.3.4",
+  requiredExtensionVersion: "0.3.5",
   roundSizeMode: "legacy",
   wavePattern: [6, 5, 4],
   candidates,
@@ -412,4 +443,115 @@ assert.ok(!Object.prototype.hasOwnProperty.call(secondStart, "wavePattern"),
   "lock response should not expose wavePattern");
 setActiveBatchRunForTest(null);
 
-console.log("v0.3.4 batch runner tests passed");
+
+// === v0.3.5: buildTabOpenDelaySeconds continuous random within [min, max] ===
+for (let i = 0; i < 200; i += 1) {
+  const delay = buildTabOpenDelaySeconds({ tabOpenDelayMinSeconds: 0.3, tabOpenDelayMaxSeconds: 1.0 });
+  assert.ok(typeof delay === "number", "delay should be a number");
+  assert.ok(delay >= 0.3 && delay <= 1.0, `delay ${delay} out of bounds [0.3, 1.0]`);
+  assert.equal(Number.isInteger(delay), false, "delay should be a continuous (non-integer) value");
+}
+assert.equal(buildTabOpenDelaySeconds({ tabOpenDelayMinSeconds: 0.5, tabOpenDelayMaxSeconds: 0.5 }), 0.5);
+assert.equal(buildTabOpenDelaySeconds({ tabOpenDelayMinSeconds: 1.0, tabOpenDelayMaxSeconds: 0.3 }), 1.0,
+  "max<min must clamp to min");
+{
+  const samples = Array.from({ length: 50 }, () =>
+    buildTabOpenDelaySeconds({ tabOpenDelayMinSeconds: -5, tabOpenDelayMaxSeconds: 10 }));
+  for (const sample of samples) {
+    assert.ok(sample >= 0.3 && sample <= 5.0001, `negative min sample ${sample} out of normalized bounds`);
+  }
+  // normalized min should be the default 0.3, normalized max should be capped to 5.0
+  assert.ok(samples.every((s) => s <= 5.0), "normalized max should cap to 5.0");
+}
+assert.equal(buildTabOpenDelaySeconds({ tabOpenDelayMinSeconds: 10, tabOpenDelayMaxSeconds: 10 }), 10,
+  "min==max should return the bound regardless of cap");
+
+// === v0.3.5: payload exposes tabOpenDelayMinSeconds / tabOpenDelayMaxSeconds ===
+assert.equal(payload.tabOpenDelayMinSeconds, 0.3);
+assert.equal(payload.tabOpenDelayMaxSeconds, 1.0);
+
+const snakeDelayPayload = normalizeBatchPayload({
+  batchId: "clb_snake",
+  requiredExtensionVersion: "0.3.5",
+  tab_open_delay_min_seconds: 0.4,
+  tab_open_delay_max_seconds: 0.9,
+  candidates,
+});
+assert.equal(snakeDelayPayload.tabOpenDelayMinSeconds, 0.4);
+assert.equal(snakeDelayPayload.tabOpenDelayMaxSeconds, 0.9);
+
+const clampedDelayPayload = normalizeBatchPayload({
+  batchId: "clb_clamp",
+  requiredExtensionVersion: "0.3.5",
+  tabOpenDelayMinSeconds: 2.0,
+  tabOpenDelayMaxSeconds: 0.5,
+  candidates,
+});
+assert.equal(clampedDelayPayload.tabOpenDelayMinSeconds, 2.0);
+assert.equal(clampedDelayPayload.tabOpenDelayMaxSeconds, 2.0, "max<min must clamp to min");
+
+const cappedDelayPayload = normalizeBatchPayload({
+  batchId: "clb_cap",
+  requiredExtensionVersion: "0.3.5",
+  tabOpenDelayMinSeconds: 0.1,
+  tabOpenDelayMaxSeconds: 30,
+  candidates,
+});
+assert.equal(cappedDelayPayload.tabOpenDelayMinSeconds, 0.3,
+  "invalid min below default floor must fall back to 0.3");
+assert.ok(cappedDelayPayload.tabOpenDelayMaxSeconds <= 5.0001, "excessive max must be capped");
+
+// === v0.3.5: batchRun.status carries tab open delay fields and nextTabOpenDelaySeconds ===
+assert.equal(batchRun.status.tabOpenDelayMinSeconds, 0.3);
+assert.equal(batchRun.status.tabOpenDelayMaxSeconds, 1.0);
+assert.ok(Object.prototype.hasOwnProperty.call(batchRun.status, "nextTabOpenDelaySeconds"),
+  "status should expose nextTabOpenDelaySeconds");
+assert.equal(batchRun.status.nextTabOpenDelaySeconds, 0);
+
+// === v0.3.5: processBatchRound opens tabs one-by-one with random ms delay (300-1000) ===
+const staggerPayload = normalizeBatchPayload({
+  batchId: "clb_stagger",
+  requiredExtensionVersion: "0.3.5",
+  roundSizeMin: 5,
+  roundSizeMax: 5,
+  tabOpenDelayMinSeconds: 0.3,
+  tabOpenDelayMaxSeconds: 1.0,
+  candidates: Array.from({ length: 5 }, (_v, idx) => ({
+    trackingKey: `product:stagger_${idx}`,
+    url: `https://www.coupang.com/vp/products/stagger_${idx}`,
+    title: `Stagger ${idx}`,
+  })),
+});
+const staggerRun = createBatchRun(staggerPayload);
+
+resetScheduledDelaysForTest();
+resetCreatedTabsForTest();
+const waveItems = takeNextBatchWave(staggerRun);
+
+// Stub fetch so postImport fails fast and the item transitions through catch->finally.
+sandbox.fetch = async () => ({ ok: false, status: 500, json: async () => ({}) });
+
+await processBatchRound(staggerRun, waveItems);
+
+// For 5 items we expect 4 inter-tab delays, each 300-1000 ms.
+// requestPayloadWithRetry internally schedules retry timers (1500ms / 30000ms),
+// so we filter scheduledDelays to the stagger range.
+const interDelays = getScheduledDelaysForTest().filter((ms) => ms >= 300 && ms <= 1000);
+assert.equal(interDelays.length, 4,
+  `expected 4 inter-tab delays for 5 items, got ${interDelays.length}: ${JSON.stringify(interDelays)}`);
+for (const ms of interDelays) {
+  assert.ok(ms >= 300 && ms <= 1000, `inter-tab delay ${ms}ms out of [300, 1000]`);
+}
+assert.equal(getCreatedTabsForTest().length, 5,
+  "processBatchRound should have created 5 tabs (one per item) before returning");
+// processBatchRound resets nextTabOpenDelaySeconds to 0 once the round finishes.
+assert.equal(staggerRun.status.nextTabOpenDelaySeconds, 0,
+  "status.nextTabOpenDelaySeconds should reset to 0 after the round completes");
+
+// Note: processBatchRound itself does not schedule a 10-30s inter-wave delay;
+// runBatch owns the inter-wave sleep. We do not assert on background
+// 30000ms timers here because waitForTabComplete and requestPayloadWithRetry
+// both register their own timeout timers, which are part of the normal
+// per-item timeout policy and are not processBatchRound's concern.
+
+console.log("v0.3.5 batch runner tests passed");

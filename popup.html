@@ -347,7 +347,7 @@
         <header class="panel-header">
           <div class="eyebrow-row">
             <p class="eyebrow">LOCAL MVP</p>
-            <span id="extension-version" class="version-badge">v0.3.4</span>
+            <span id="extension-version" class="version-badge">v0.3.5</span>
           </div>
           <h1 id="panel-title">쿠팡 상세 확인 가져오기</h1>
           <p class="subtitle">현재 열린 Coupang 상품 페이지의 보이는 텍스트만 서버로 전송합니다.</p>
@@ -376,19 +376,19 @@
           </section>
           <section class="batch-card" aria-labelledby="batch-status-title">
             <span id="batch-status-title" class="batch-title">최근 current-list batch</span>
-            <p class="batch-summary" role="note">최대 30개 후보 · 라운드 5-10개 랜덤 · 10-30초 랜덤 대기</p>
+            <p class="batch-summary" role="note">최대 30개 후보 · 라운드 5-10개 랜덤 · 탭 0.3-1.0초 랜덤 간격 · 10-30초 인터-라운드 대기</p>
             <p id="batch-status" class="batch-status" role="status" aria-live="polite">
               최근 current-list batch 기록이 없습니다.
             </p>
             <p class="batch-legend">
-              상태 안내: <code>진행 중</code>은 현재 라운드 처리, <code>다음 라운드 대기</code>는 10-30초 사이 랜덤 쉬고 자동 재개, <code>중단됨</code>은 차단 감지로 자동 정지, <code>최근 결과</code>는 마지막 완료 또는 실패입니다. 각 라운드는 5-10 사이에서 무작위로 정해지며 마지막 라운드는 남은 후보 수로 맞춰집니다.
+              상태 안내: <code>진행 중</code>은 현재 라운드의 탭을 0.3-1.0초 랜덤 간격으로 순차 오픈, <code>다음 라운드 대기</code>는 10-30초 사이 랜덤 쉬고 자동 재개, <code>중단됨</code>은 차단 감지로 자동 정지, <code>최근 결과</code>는 마지막 완료 또는 실패입니다. 각 라운드는 5-10 사이에서 무작위로 정해지며 마지막 라운드는 남은 후보 수로 맞춰집니다.
             </p>
           </section>
           <button id="save-button" type="submit">현재 페이지 저장</button>
           <p id="status" class="status" role="status" aria-live="polite">
             Coupang 상품 페이지를 연 뒤 버튼을 누르세요.
           </p>
-          <p class="hint">서버는 Tailscale source gate로만 접근을 허용합니다. 자동/수동 요청과 current-list batch import 모두 extension version 0.3.4를 함께 보냅니다. 소스/배치 옵션 변경 후에는 Brave/Chrome 확장 목록에서 reload한 뒤 current-list 페이지를 새로고침해야 새 동작이 반영됩니다.</p>
+          <p class="hint">서버는 Tailscale source gate로만 접근을 허용합니다. 자동/수동 요청과 current-list batch import 모두 extension version 0.3.5를 함께 보냅니다. 소스/배치 옵션 변경 후에는 Brave/Chrome 확장 목록에서 reload한 뒤 current-list 페이지를 새로고침해야 새 동작이 반영됩니다.</p>
         </form>
       </section>
     </main>
