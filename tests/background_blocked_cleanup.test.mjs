@@ -13,7 +13,10 @@ const listeners = {
   installed: [],
   tabRemoved: [],
   tabUpdated: [],
+  windowRemoved: [],
 };
+
+const removedWindowIds = [];
 
 const sandbox = {
   console,
@@ -43,6 +46,14 @@ const sandbox = {
       get: () => {},
       sendMessage: (_tabId, _message, callback) => callback({ ok: true, payload: {} }),
     },
+    windows: {
+      onRemoved: { addListener: (listener) => listeners.windowRemoved.push(listener) },
+      remove: (windowId, callback) => {
+        if (!removedWindowIds.includes(windowId)) removedWindowIds.push(windowId);
+        if (typeof callback === "function") callback();
+      },
+      create: (_createProperties, callback) => callback({ id: 7001 }),
+    },
     storage: {
       local: {
         get: (_keys, callback) => callback({}),
@@ -67,7 +78,12 @@ globalThis.__v034TestExports = {
   getBatchTabEntryForTest: (tabId) => batchTabRegistry.get(tabId),
   removeBatchTabEntryForTest: (tabId) => batchTabRegistry.delete(tabId),
   listBatchTabEntriesForTest: () => Array.from(batchTabRegistry.values()),
+  registerBatchWindowForTest: (entry) => batchWindowRegistry.set(entry.windowId, entry),
+  getBatchWindowEntryForTest: (windowId) => batchWindowRegistry.get(windowId),
+  removeBatchWindowEntryForTest: (windowId) => batchWindowRegistry.delete(windowId),
+  listBatchWindowEntriesForTest: () => Array.from(batchWindowRegistry.values()),
   closeOwnedBatchTabsForBatchForTest: closeOwnedBatchTabsForBatch,
+  closeOwnedBatchWindowsForBatchForTest: closeOwnedBatchWindowsForBatch,
   closeOwnedBatchTabForTest: closeOwnedBatchTab,
 };
 `,
@@ -86,7 +102,12 @@ const {
   getBatchTabEntryForTest,
   removeBatchTabEntryForTest,
   listBatchTabEntriesForTest,
+  registerBatchWindowForTest,
+  getBatchWindowEntryForTest,
+  removeBatchWindowEntryForTest,
+  listBatchWindowEntriesForTest,
   closeOwnedBatchTabsForBatchForTest,
+  closeOwnedBatchWindowsForBatchForTest,
   closeOwnedBatchTabForTest,
 } = sandbox.__v034TestExports;
 
@@ -99,8 +120,8 @@ sandbox.chrome.tabs.remove = (tabId, callback) => {
   if (typeof callback === "function") callback();
 };
 
-// === v0.3.5 version bump ===
-assert.equal(EXTENSION_VERSION, "0.3.5", "EXTENSION_VERSION must be bumped to 0.3.5");
+// === v0.4.0 version bump ===
+assert.equal(EXTENSION_VERSION, "0.4.0", "EXTENSION_VERSION must be bumped to 0.4.0");
 
 // === extractImportResultStatus: helper exists and reads from nested result ===
 assert.equal(
@@ -232,15 +253,42 @@ assert.equal(removedTabIds.length, 0,
 assert.notEqual(getBatchTabEntryForTest(2001), undefined);
 assert.notEqual(getBatchTabEntryForTest(2002), undefined);
 
+// === closeOwnedBatchWindowsForBatch: same-batch owned windows close, others preserved ===
+for (const entry of listBatchWindowEntriesForTest()) {
+  removeBatchWindowEntryForTest(entry.windowId);
+}
+removedWindowIds.length = 0;
+
+registerBatchWindowForTest({ windowId: 5001, batchId: activeBatchId, ownedByBatch: true });
+registerBatchWindowForTest({ windowId: 5002, batchId: otherBatchId, ownedByBatch: true });
+registerBatchWindowForTest({ windowId: 5003, batchId: activeBatchId, ownedByBatch: false });
+registerBatchWindowForTest({ windowId: 5004, batchId: null, ownedByBatch: true });
+
+const windowCloseReport = await closeOwnedBatchWindowsForBatchForTest(activeBatchId);
+assert.equal(windowCloseReport.closed, 1, "must close same-batch owned private windows only");
+assert.equal(windowCloseReport.skipped, 0);
+assert.deepEqual(removedWindowIds.slice().sort(), [5001]);
+assert.equal(getBatchWindowEntryForTest(5001), undefined);
+assert.notEqual(getBatchWindowEntryForTest(5002), undefined,
+  "different-batch owned window must be preserved");
+assert.notEqual(getBatchWindowEntryForTest(5003), undefined,
+  "user/non-owned same-batch window must be preserved");
+assert.notEqual(getBatchWindowEntryForTest(5004), undefined,
+  "null-batch window entry must be preserved");
+
 // === processBatchItem: blocked detection must promptly stop batch and close same-batch owned siblings ===
 for (const entry of listBatchTabEntriesForTest()) {
   removeBatchTabEntryForTest(entry.tabId);
 }
+for (const entry of listBatchWindowEntriesForTest()) {
+  removeBatchWindowEntryForTest(entry.windowId);
+}
 removedTabIds.length = 0;
+removedWindowIds.length = 0;
 
 const immediateStopPayload = normalizeBatchPayload({
   batchId: "clb_v034_prompt_stop",
-  requiredExtensionVersion: "0.3.5",
+  requiredExtensionVersion: "0.4.0",
   roundSizeMin: 1,
   roundSizeMax: 1,
   stopOnBlock: true,
@@ -259,10 +307,15 @@ const immediateStopPayload = normalizeBatchPayload({
   ],
 });
 const immediateStopRun = createBatchRun(immediateStopPayload);
+immediateStopRun.status.closedOwnedWindows = 2;
+immediateStopRun.status.closedOwnedWindowsSkipped = 1;
 
 registerBatchTabForTest({ tabId: 3002, batchId: immediateStopRun.batchId, ownedByBatch: true });
 registerBatchTabForTest({ tabId: 3003, batchId: "other_batch", ownedByBatch: true });
 registerBatchTabForTest({ tabId: 3004, batchId: immediateStopRun.batchId, ownedByBatch: false });
+registerBatchWindowForTest({ windowId: 3301, batchId: immediateStopRun.batchId, ownedByBatch: true });
+registerBatchWindowForTest({ windowId: 3302, batchId: "other_batch", ownedByBatch: true });
+registerBatchWindowForTest({ windowId: 3303, batchId: immediateStopRun.batchId, ownedByBatch: false });
 
 sandbox.chrome.tabs.create = (_createProperties, callback) => callback({ id: 3001 });
 sandbox.chrome.tabs.get = (_tabId, callback) => callback({ id: 3001, status: "complete" });
@@ -293,22 +346,37 @@ assert.equal(immediateStopRun.items[1].status, "skipped",
   "not-yet-started item must be skipped when blocked stop triggers");
 assert.deepEqual(removedTabIds.slice().sort(), [3001, 3002].sort(),
   "current blocked tab and same-batch owned sibling must both close promptly");
+assert.deepEqual(removedWindowIds.slice().sort(), [3301],
+  "same-batch owned private window must close promptly");
+assert.equal(immediateStopRun.status.closedOwnedWindows, 3,
+  "blocked cleanup must add to prior round window close count");
+assert.equal(immediateStopRun.status.closedOwnedWindowsSkipped, 1,
+  "blocked cleanup must preserve prior skipped window close count");
 assert.equal(getBatchTabEntryForTest(3001), undefined);
 assert.equal(getBatchTabEntryForTest(3002), undefined);
 assert.notEqual(getBatchTabEntryForTest(3003), undefined,
   "different-batch owned tab must be preserved");
 assert.notEqual(getBatchTabEntryForTest(3004), undefined,
   "user-opened same-batch tab must be preserved");
+assert.equal(getBatchWindowEntryForTest(3301), undefined);
+assert.notEqual(getBatchWindowEntryForTest(3302), undefined,
+  "different-batch owned window must be preserved");
+assert.notEqual(getBatchWindowEntryForTest(3303), undefined,
+  "same-batch non-owned window must be preserved");
 
 // === processBatchItem: blocked item must not stop batch when stopOnBlock=false ===
 for (const entry of listBatchTabEntriesForTest()) {
   removeBatchTabEntryForTest(entry.tabId);
 }
+for (const entry of listBatchWindowEntriesForTest()) {
+  removeBatchWindowEntryForTest(entry.windowId);
+}
 removedTabIds.length = 0;
+removedWindowIds.length = 0;
 
 const continueOnBlockPayload = normalizeBatchPayload({
   batchId: "clb_v034_continue_on_block",
-  requiredExtensionVersion: "0.3.5",
+  requiredExtensionVersion: "0.4.0",
   roundSizeMin: 1,
   roundSizeMax: 1,
   stopOnBlock: false,
@@ -330,6 +398,7 @@ const continueOnBlockRun = createBatchRun(continueOnBlockPayload);
 
 registerBatchTabForTest({ tabId: 3102, batchId: continueOnBlockRun.batchId, ownedByBatch: true });
 registerBatchTabForTest({ tabId: 3103, batchId: "other_batch", ownedByBatch: true });
+registerBatchWindowForTest({ windowId: 3401, batchId: continueOnBlockRun.batchId, ownedByBatch: true });
 
 sandbox.chrome.tabs.create = (_createProperties, callback) => callback({ id: 3101 });
 sandbox.chrome.tabs.get = (_tabId, callback) => callback({ id: 3101, status: "complete" });
@@ -360,10 +429,13 @@ assert.equal(continueOnBlockRun.items[1].status, "pending",
   "stopOnBlock=false이면 아직 시작하지 않은 항목은 그대로 pending이어야 한다");
 assert.deepEqual(removedTabIds.slice().sort(), [3101],
   "현재 처리 중인 탭만 닫고 같은 배치 형제 탭 정리는 하지 않아야 한다");
+assert.deepEqual(removedWindowIds.slice().sort(), [],
+  "stopOnBlock=false이면 owned window 정리는 하지 않아야 한다");
 assert.equal(getBatchTabEntryForTest(3101), undefined);
 assert.notEqual(getBatchTabEntryForTest(3102), undefined,
   "stopOnBlock=false이면 같은 배치 형제 owned 탭을 유지해야 한다");
 assert.notEqual(getBatchTabEntryForTest(3103), undefined);
+assert.notEqual(getBatchWindowEntryForTest(3401), undefined);
 
 // === processBatchItem: blocked item below threshold must not stop or cleanup ===
 for (const entry of listBatchTabEntriesForTest()) {
@@ -373,7 +445,7 @@ removedTabIds.length = 0;
 
 const thresholdPayload = normalizeBatchPayload({
   batchId: "clb_v034_threshold_two",
-  requiredExtensionVersion: "0.3.5",
+  requiredExtensionVersion: "0.4.0",
   roundSizeMin: 1,
   roundSizeMax: 1,
   stopOnBlock: true,
@@ -465,4 +537,4 @@ assert.equal(getBatchTabEntryForTest(3205), undefined);
 assert.notEqual(getBatchTabEntryForTest(3204), undefined,
   "다른 배치 탭은 임계치 도달 시에도 유지되어야 한다");
 
-console.log("v0.3.5 blocked-detection and batch-tab cleanup tests passed");
+console.log("v0.4.0 blocked-detection and batch-tab cleanup tests passed");

@@ -1,4 +1,4 @@
-const EXTENSION_VERSION = "0.3.5";
+const EXTENSION_VERSION = "0.4.0";
 const SERVER_URL = "http://100.118.184.5:5000";
 const IMPORT_PATH = "/api/dedicated/coupang_apple_return_sale/detail-check/import";
 const AUTO_MODE_KEY = "autoModeEnabled";
@@ -7,12 +7,16 @@ const AUTO_DEDUP_KEY = "autoDedupMetadata";
 const BATCH_STATUS_KEY = "currentListBatchStatus";
 const AUTO_DEDUP_WINDOW_MS = 10 * 60 * 1000;
 const BATCH_CANDIDATE_CAP = 30;
-const DEFAULT_BATCH_ROUND_SIZE_MIN = 5;
-const DEFAULT_BATCH_ROUND_SIZE_MAX = 10;
+const DEFAULT_BATCH_ROUND_SIZE_MIN = 8;
+const DEFAULT_BATCH_ROUND_SIZE_MAX = 12;
 const LEGACY_BATCH_WAVE_PATTERN = [6, 5, 4];
 const MAX_BATCH_ROUND_SIZE = BATCH_CANDIDATE_CAP;
 const DEFAULT_WAVE_SLEEP_MIN_SECONDS = 10;
-const DEFAULT_WAVE_SLEEP_MAX_SECONDS = 30;
+const DEFAULT_WAVE_SLEEP_MAX_SECONDS = 20;
+const SESSION_MODES = new Set(["incognito", "regular"]);
+const SESSION_ROTATIONS = new Set(["per_round"]);
+const DEFAULT_SESSION_MODE = "incognito";
+const DEFAULT_SESSION_ROTATION = "per_round";
 const DEFAULT_TAB_OPEN_DELAY_MIN_SECONDS = 0.3;
 const DEFAULT_TAB_OPEN_DELAY_MAX_SECONDS = 1.0;
 const MAX_TAB_OPEN_DELAY_SECONDS = 5.0;
@@ -27,6 +31,7 @@ const SUPPORTED_PRODUCT_PAGE_RE = /^https:\/\/www\.coupang\.com\/vp\/products\/[
 
 let activeBatchRun = null;
 const batchTabRegistry = new Map();
+const batchWindowRegistry = new Map();
 
 chrome.runtime.onInstalled.addListener(() => {
   initializeDefaults().catch(() => {});
@@ -39,6 +44,24 @@ chrome.runtime.onStartup.addListener(() => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   batchTabRegistry.delete(tabId);
 });
+
+if (chrome && chrome.windows && chrome.windows.onRemoved && typeof chrome.windows.onRemoved.addListener === "function") {
+  chrome.windows.onRemoved.addListener((windowId) => {
+    if (typeof windowId !== "number") {
+      return;
+    }
+    const entry = batchWindowRegistry.get(windowId);
+    if (!entry) {
+      return;
+    }
+    batchWindowRegistry.delete(windowId);
+    const batchRun = entry.batchRunRef;
+    if (batchRun && batchRun.roundSession && batchRun.roundSession.windowId === windowId) {
+      batchRun.roundSession.windowId = null;
+      batchRun.roundSession.closed = true;
+    }
+  });
+}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message.type !== "string") {
@@ -240,10 +263,12 @@ async function handleAutoPageView(payload, sender) {
 
 async function handleCurrentListPing() {
   const batchStatus = await getLatestBatchStatus();
+  const incognitoAllowed = await isAllowedIncognitoAccess();
   return {
     ok: true,
     type: "pm:pong",
     extensionVersion: EXTENSION_VERSION,
+    incognitoAllowed,
     batchStatus
   };
 }
@@ -260,6 +285,7 @@ async function handleCurrentListBatchStatus() {
 
 async function handleCurrentListBatchStart(payload) {
   const normalizedPayload = normalizeBatchPayload(payload);
+  const sessionMode = normalizedPayload.sessionMode || DEFAULT_SESSION_MODE;
 
   if (activeBatchRun) {
     return {
@@ -268,8 +294,47 @@ async function handleCurrentListBatchStart(payload) {
       error: "이미 실행 중인 current-list batch가 있습니다.",
       errorCode: "batch_already_running",
       extensionVersion: EXTENSION_VERSION,
+      sessionMode,
       batchStatus: activeBatchRun.status
     };
+  }
+
+  if (sessionMode === "incognito") {
+    const incognitoAllowed = await isAllowedIncognitoAccess();
+    if (!incognitoAllowed) {
+      const rejectedStatus = {
+        batchId: normalizedPayload.batchId,
+        state: "failed",
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        extensionVersion: EXTENSION_VERSION,
+        errorCode: "incognito_not_allowed",
+        error: "확장이 시크릿/프라이빗 창에서 실행되도록 허용되지 않았습니다. Brave는 'Allow in Private', Chrome은 'Allow in Incognito'을 켜고 다시 시도하세요.",
+        sessionMode,
+        sessionModeIsPrivate: true,
+        accepted: normalizedPayload.candidates.length,
+        candidateCount: normalizedPayload.candidates.length,
+        roundSize: normalizedPayload.roundSize,
+        waveSleepMinSeconds: normalizedPayload.waveSleepMinSeconds,
+        waveSleepMaxSeconds: normalizedPayload.waveSleepMaxSeconds,
+        tabOpenDelayMinSeconds: normalizedPayload.tabOpenDelayMinSeconds,
+        tabOpenDelayMaxSeconds: normalizedPayload.tabOpenDelayMaxSeconds,
+        summary: { pending: 0, running: 0, success: 0, failure: 0, timeout: 0, skipped: 0, completed: 0, total: normalizedPayload.candidates.length },
+        items: []
+      };
+      await persistBatchStatus(rejectedStatus);
+      return {
+        ok: false,
+        type: "pm:batch-start-response",
+        extensionVersion: EXTENSION_VERSION,
+        error: "확장이 시크릿 창에서 실행되도록 허용되지 않았습니다.",
+        errorCode: "incognito_not_allowed",
+        sessionMode,
+        incognitoAllowed: false,
+        batchStatus: rejectedStatus
+      };
+    }
   }
 
   const batchRun = createBatchRun(normalizedPayload);
@@ -287,7 +352,9 @@ async function handleCurrentListBatchStart(payload) {
     batchId: batchRun.batchId,
     accepted: batchRun.items.length,
     startedAt: batchRun.status.startedAt,
-    roundSize: batchRun.roundSize
+    roundSize: batchRun.roundSize,
+    sessionMode: batchRun.sessionMode,
+    sessionRotation: batchRun.sessionRotation
   };
 }
 
@@ -298,7 +365,19 @@ async function runBatch(batchRun) {
     batchRun.status.nextWaveDelaySeconds = 0;
     touchBatchStatus(batchRun);
     await persistBatchStatus(batchRun.status);
-    await processBatchRound(batchRun, waveItems);
+    batchRun.roundSession = { windowId: null, closed: false };
+    let roundSessionOpened = false;
+    try {
+      if (batchRun.sessionMode === "incognito") {
+        await openRoundSession(batchRun);
+        roundSessionOpened = true;
+      }
+      await processBatchRound(batchRun, waveItems, batchRun.roundSession);
+    } finally {
+      if (roundSessionOpened) {
+        await closeRoundSession(batchRun);
+      }
+    }
 
     if (shouldStopBatch(batchRun)) {
       await triggerBlockedBatchStop(batchRun);
@@ -354,7 +433,7 @@ function takeNextBatchWave(batchRun) {
   return waveItems;
 }
 
-async function processBatchItem(batchRun, item) {
+async function processBatchItem(batchRun, item, roundSession) {
   item.status = "running";
   item.startedAt = new Date().toISOString();
   touchBatchStatus(batchRun);
@@ -363,9 +442,22 @@ async function processBatchItem(batchRun, item) {
   let tabId = null;
 
   try {
-    const createdTab = await createTab({ active: false, url: item.url });
+    const tabCreateProperties = { active: false, url: item.url };
+    if (roundSession && typeof roundSession.windowId === "number") {
+      tabCreateProperties.windowId = roundSession.windowId;
+      item.ownedWindowId = roundSession.windowId;
+    } else if (batchRun && batchRun.sessionMode !== "incognito") {
+      // Regular mode: no owned window, no windowId hint.
+    } else if (batchRun && batchRun.sessionMode === "incognito" && batchRun.roundSession && typeof batchRun.roundSession.windowId === "number") {
+      tabCreateProperties.windowId = batchRun.roundSession.windowId;
+      item.ownedWindowId = batchRun.roundSession.windowId;
+    }
+    const createdTab = await createTab(tabCreateProperties);
     tabId = createdTab.id;
     item.tabId = tabId;
+    if (typeof item.ownedWindowId !== "number" && createdTab && typeof createdTab.windowId === "number") {
+      item.ownedWindowId = createdTab.windowId;
+    }
     registerBatchTab({
       tabId,
       batchId: batchRun.batchId,
@@ -447,10 +539,13 @@ async function triggerBlockedBatchStop(batchRun) {
     batchRun.status.completedAt = new Date().toISOString();
     touchBatchStatus(batchRun);
     const cleanupReport = await closeOwnedBatchTabsForBatch(batchRun.batchId);
+    const windowReport = await closeOwnedBatchWindowsForBatch(batchRun.batchId);
     batchRun.status.closedOwnedTabs = cleanupReport.closed;
     batchRun.status.closedOwnedTabsSkipped = cleanupReport.skipped;
+    batchRun.status.closedOwnedWindows = Number(batchRun.status.closedOwnedWindows || 0) + windowReport.closed;
+    batchRun.status.closedOwnedWindowsSkipped = Number(batchRun.status.closedOwnedWindowsSkipped || 0) + windowReport.skipped;
     await persistBatchStatus(batchRun.status);
-    return cleanupReport;
+    return { tabs: cleanupReport, windows: windowReport };
   })();
 
   return batchRun.stopCleanupPromise;
@@ -521,6 +616,12 @@ function normalizeBatchPayload(payload) {
     payload.tabOpenDelayMinSeconds !== undefined ? payload.tabOpenDelayMinSeconds : payload.tab_open_delay_min_seconds,
     payload.tabOpenDelayMaxSeconds !== undefined ? payload.tabOpenDelayMaxSeconds : payload.tab_open_delay_max_seconds
   );
+  const sessionMode = normalizeSessionMode(
+    payload.sessionMode !== undefined ? payload.sessionMode : payload.session_mode
+  );
+  const sessionRotation = normalizeSessionRotation(
+    payload.sessionRotation !== undefined ? payload.sessionRotation : payload.session_rotation
+  );
 
   return {
     batchId: typeof payload.batchId === "string" && payload.batchId.trim()
@@ -536,8 +637,39 @@ function normalizeBatchPayload(payload) {
     tabOpenDelayMaxSeconds: tabOpenDelayBounds.max,
     stopOnBlock,
     blockStopThreshold,
+    sessionMode,
+    sessionRotation,
     candidates: normalizedCandidates
   };
+}
+
+function normalizeSessionMode(value) {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "private" || normalized === "incognito") {
+      return "incognito";
+    }
+    if (normalized === "regular" || normalized === "normal") {
+      return "regular";
+    }
+  }
+  if (value === false) {
+    return "regular";
+  }
+  if (value === true) {
+    return "incognito";
+  }
+  return DEFAULT_SESSION_MODE;
+}
+
+function normalizeSessionRotation(value) {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (SESSION_ROTATIONS.has(normalized)) {
+      return normalized;
+    }
+  }
+  return DEFAULT_SESSION_ROTATION;
 }
 
 function normalizeCandidate(candidate) {
@@ -681,6 +813,7 @@ function createBatchRun(payload) {
     title: candidate.title,
     status: "pending",
     tabId: null,
+    ownedWindowId: null,
     startedAt: null,
     finishedAt: null
   }));
@@ -689,6 +822,9 @@ function createBatchRun(payload) {
     min: DEFAULT_BATCH_ROUND_SIZE_MIN,
     max: DEFAULT_BATCH_ROUND_SIZE_MAX
   };
+
+  const sessionMode = payload.sessionMode || DEFAULT_SESSION_MODE;
+  const sessionRotation = payload.sessionRotation || DEFAULT_SESSION_ROTATION;
 
   return {
     batchId: payload.batchId,
@@ -701,10 +837,13 @@ function createBatchRun(payload) {
     tabOpenDelayMaxSeconds: payload.tabOpenDelayMaxSeconds,
     stopOnBlock: payload.stopOnBlock,
     blockStopThreshold: payload.blockStopThreshold,
+    sessionMode,
+    sessionRotation,
     items,
     nextIndex: 0,
     legacyWaveIndex: 0,
     blockCount: 0,
+    roundSession: { windowId: null, closed: false },
     status: {
       batchId: payload.batchId,
       state: "running",
@@ -728,6 +867,12 @@ function createBatchRun(payload) {
       skipped: 0,
       blocked: 0,
       candidateCount: items.length,
+      sessionMode,
+      sessionRotation,
+      sessionModeIsPrivate: sessionMode === "incognito",
+      ownedWindowId: null,
+      closedOwnedWindows: 0,
+      closedOwnedWindowsSkipped: 0,
       summary: buildBatchSummary(items),
       items: cloneBatchItems(items)
     }
@@ -770,6 +915,7 @@ function cloneBatchItems(items) {
     title: item.title,
     status: item.status,
     tabId: item.tabId,
+    ownedWindowId: typeof item.ownedWindowId === "number" ? item.ownedWindowId : null,
     startedAt: item.startedAt,
     finishedAt: item.finishedAt,
     error: item.error || "",
@@ -819,13 +965,14 @@ function buildTabOpenDelaySeconds(batchRun) {
   return lower + Math.random() * (upper - lower);
 }
 
-async function processBatchRound(batchRun, waveItems) {
+async function processBatchRound(batchRun, waveItems, roundSession) {
+  const session = roundSession || (batchRun && batchRun.roundSession) || null;
   const promises = [];
   for (let index = 0; index < waveItems.length; index += 1) {
     if (shouldStopBatch(batchRun)) {
       break;
     }
-    promises.push(processBatchItem(batchRun, waveItems[index]));
+    promises.push(processBatchItem(batchRun, waveItems[index], session));
     if (index < waveItems.length - 1) {
       const delaySeconds = buildTabOpenDelaySeconds(batchRun);
       batchRun.status.nextTabOpenDelaySeconds = delaySeconds;
@@ -946,6 +1093,106 @@ async function closeOwnedBatchTab(tabId) {
       throw error;
     }
   }
+}
+
+function registerBatchWindow(entry) {
+  if (!entry || typeof entry.windowId !== "number") {
+    return;
+  }
+  batchWindowRegistry.set(entry.windowId, entry);
+}
+
+async function openRoundSession(batchRun) {
+  if (!batchRun || batchRun.sessionMode !== "incognito") {
+    return null;
+  }
+  const createdWindow = await createWindow({
+    url: "about:blank",
+    incognito: true,
+    focused: false
+  });
+  if (!createdWindow || typeof createdWindow.id !== "number") {
+    throw new Error("private window 생성에 실패했습니다.");
+  }
+  batchRun.roundSession = {
+    windowId: createdWindow.id,
+    closed: false
+  };
+  registerBatchWindow({
+    windowId: createdWindow.id,
+    batchId: batchRun.batchId,
+    ownedByBatch: true,
+    batchRunRef: batchRun
+  });
+  return batchRun.roundSession;
+}
+
+async function closeRoundSession(batchRun) {
+  if (!batchRun || !batchRun.roundSession) {
+    return { closed: 0, skipped: 0 };
+  }
+  const sessionWindowId = batchRun.roundSession.windowId;
+  if (typeof sessionWindowId !== "number") {
+    return { closed: 0, skipped: 0 };
+  }
+  const entry = batchWindowRegistry.get(sessionWindowId);
+  if (entry) {
+    batchWindowRegistry.delete(sessionWindowId);
+  }
+  try {
+    await removeWindow(sessionWindowId);
+  } catch (error) {
+    if (!String(error && error.message).includes("No window with id")) {
+      throw error;
+    }
+  }
+  batchRun.roundSession.windowId = null;
+  batchRun.roundSession.closed = true;
+  if (batchRun.status) {
+    batchRun.status.closedOwnedWindows = Number(batchRun.status.closedOwnedWindows || 0) + 1;
+    batchRun.status.closedOwnedWindowsSkipped = Number(batchRun.status.closedOwnedWindowsSkipped || 0);
+    touchBatchStatus(batchRun);
+  }
+  return { closed: 1, skipped: 0 };
+}
+
+async function closeOwnedBatchWindowsForBatch(batchId) {
+  if (typeof batchId !== "string" || !batchId) {
+    return { closed: 0, skipped: 0 };
+  }
+  const ownedWindowIds = [];
+  for (const [windowId, entry] of batchWindowRegistry.entries()) {
+    if (!entry || entry.ownedByBatch !== true) {
+      continue;
+    }
+    if (entry.batchId !== batchId) {
+      continue;
+    }
+    ownedWindowIds.push(windowId);
+  }
+  let closed = 0;
+  let skipped = 0;
+  for (const windowId of ownedWindowIds) {
+    try {
+      const entry = batchWindowRegistry.get(windowId);
+      batchWindowRegistry.delete(windowId);
+      try {
+        await removeWindow(windowId);
+      } catch (error) {
+        if (!String(error && error.message).includes("No window with id")) {
+          throw error;
+        }
+      }
+      if (entry && entry.batchRunRef && entry.batchRunRef.roundSession && entry.batchRunRef.roundSession.windowId === windowId) {
+        entry.batchRunRef.roundSession.windowId = null;
+        entry.batchRunRef.roundSession.closed = true;
+      }
+      closed += 1;
+    } catch (error) {
+      skipped += 1;
+    }
+  }
+  return { closed, skipped };
 }
 
 async function closeOwnedBatchTabsForBatch(batchId) {
@@ -1236,5 +1483,60 @@ function sendMessageToTab(tabId, message) {
 function delay(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
+  });
+}
+
+function createWindow(createProperties) {
+  return new Promise((resolve, reject) => {
+    if (!chrome || !chrome.windows || typeof chrome.windows.create !== "function") {
+      reject(new Error("chrome.windows.create API를 사용할 수 없습니다."));
+      return;
+    }
+    chrome.windows.create(createProperties, (window) => {
+      const runtimeError = chrome.runtime && chrome.runtime.lastError;
+      if (runtimeError) {
+        reject(new Error(runtimeError.message));
+        return;
+      }
+      resolve(window);
+    });
+  });
+}
+
+function removeWindow(windowId) {
+  return new Promise((resolve, reject) => {
+    if (!chrome || !chrome.windows || typeof chrome.windows.remove !== "function") {
+      reject(new Error("chrome.windows.remove API를 사용할 수 없습니다."));
+      return;
+    }
+    chrome.windows.remove(windowId, () => {
+      const runtimeError = chrome.runtime && chrome.runtime.lastError;
+      if (runtimeError) {
+        reject(new Error(runtimeError.message));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function isAllowedIncognitoAccess() {
+  return new Promise((resolve) => {
+    if (!chrome || !chrome.extension || typeof chrome.extension.isAllowedIncognitoAccess !== "function") {
+      resolve(false);
+      return;
+    }
+    try {
+      chrome.extension.isAllowedIncognitoAccess((allowed) => {
+        const runtimeError = chrome.runtime && chrome.runtime.lastError;
+        if (runtimeError) {
+          resolve(false);
+          return;
+        }
+        resolve(Boolean(allowed));
+      });
+    } catch (error) {
+      resolve(false);
+    }
   });
 }

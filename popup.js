@@ -1,6 +1,6 @@
 const SERVER_URL = "http://100.118.184.5:5000";
 const SERVER_ORIGIN = "http://100.118.184.5:5000";
-const EXTENSION_VERSION = "0.3.5";
+const EXTENSION_VERSION = "0.4.0";
 const AUTO_MODE_KEY = "autoModeEnabled";
 const AUTO_STATUS_KEY = "lastAutoStatus";
 const BATCH_STATUS_KEY = "currentListBatchStatus";
@@ -169,11 +169,19 @@ async function renderBatchState() {
     : "";
   const nextDelay = Number(currentListBatchStatus.nextWaveDelaySeconds || 0);
 
-  const header = describeBatchState(state, { nextDelay, stopReason: currentListBatchStatus.stopReason || "" });
+  const header = describeBatchState(state, {
+    nextDelay,
+    stopReason: currentListBatchStatus.stopReason || "",
+    errorCode: currentListBatchStatus.errorCode || ""
+  });
   const lastRoundSize = Number(currentListBatchStatus.lastRoundSize || 0);
   const roundNote = lastRoundSize > 0 ? ` · 최근 라운드 ${lastRoundSize}개` : "";
   const counts = `성공 ${success} · 실패 ${failure} · 건너뜀 ${skipped} · 차단 ${blocked} · ${completed}/${total} 완료`;
-  setBatchStatus(`${header} · ${batchId} · ${counts}${roundNote}${updatedAt}`, toneForState(state));
+  const sessionNote = describeBatchSession(currentListBatchStatus);
+  setBatchStatus(
+    `${header} · ${batchId} · ${counts}${roundNote}${sessionNote}${updatedAt}`,
+    toneForState(state, currentListBatchStatus.errorCode)
+  );
 }
 
 function describeBatchState(state, details) {
@@ -193,18 +201,73 @@ function describeBatchState(state, details) {
     case "completed":
       return "batch 최근 결과";
     case "failed":
+      if (details && details.errorCode === "incognito_not_allowed") {
+        return "batch 실패 — 시크릿 창 허용 필요";
+      }
       return "batch 실패";
     default:
       return "batch 상태 알 수 없음";
   }
 }
 
-function toneForState(state) {
+function describeBatchSession(status) {
+  if (!status || typeof status !== "object") {
+    return "";
+  }
+  const mode = typeof status.sessionMode === "string" ? status.sessionMode : "";
+  const isPrivate = mode === "incognito" || status.sessionModeIsPrivate === true;
+  const rotation = typeof status.sessionRotation === "string" ? status.sessionRotation : "";
+  const closedWindows = Number(status.closedOwnedWindows || 0);
+  const skippedWindows = Number(status.closedOwnedWindowsSkipped || 0);
+  const lastRoundSize = Number(status.lastRoundSize || 0);
+  const currentRound = Number(status.currentRound || 0);
+  const roundCount = Number(status.roundCount || 0);
+  const errorCode = typeof status.errorCode === "string" ? status.errorCode : "";
+  const parts = [];
+
+  if (isPrivate) {
+    if (rotation === "per_round") {
+      parts.push("모드 시크릿(라운드별 새 시크릿 창)");
+    } else {
+      parts.push("모드 시크릿");
+    }
+  } else if (mode === "regular") {
+    parts.push("모드 일반(서버가 명시 요청한 경우에만)");
+  } else if (mode) {
+    parts.push(`모드 ${mode}`);
+  }
+
+  if (currentRound > 0 && roundCount > 0) {
+    parts.push(`라운드 ${currentRound}/${roundCount}`);
+  }
+  if (lastRoundSize > 0 && currentRound === 0) {
+    parts.push(`최근 라운드 ${lastRoundSize}개`);
+  }
+
+  if (closedWindows > 0 || skippedWindows > 0) {
+    const detail = [`닫은 시크릿 창 ${closedWindows}개`];
+    if (skippedWindows > 0) {
+      detail.push(`건너뜀 ${skippedWindows}개`);
+    }
+    parts.push(detail.join(" · "));
+  }
+
+  if (errorCode === "incognito_not_allowed") {
+    parts.push("확장 세부정보에서 Brave 'Allow in Private' 또는 Chrome 'Allow in Incognito' 활성화 필요");
+  }
+
+  return parts.length > 0 ? ` · [${parts.join(" · ")}]` : "";
+}
+
+function toneForState(state, errorCode) {
   if (state === "failed" || state === "stopped") {
     return "error";
   }
   if (state === "completed") {
     return "success";
+  }
+  if (errorCode === "incognito_not_allowed") {
+    return "error";
   }
   return "default";
 }
