@@ -120,8 +120,8 @@ sandbox.chrome.tabs.remove = (tabId, callback) => {
   if (typeof callback === "function") callback();
 };
 
-// === v0.4.0 version bump ===
-assert.equal(EXTENSION_VERSION, "0.4.0", "EXTENSION_VERSION must be bumped to 0.4.0");
+// === v0.4.1 version bump ===
+assert.equal(EXTENSION_VERSION, "0.4.1", "EXTENSION_VERSION must be bumped to 0.4.1");
 
 // === extractImportResultStatus: helper exists and reads from nested result ===
 assert.equal(
@@ -288,7 +288,7 @@ removedWindowIds.length = 0;
 
 const immediateStopPayload = normalizeBatchPayload({
   batchId: "clb_v034_prompt_stop",
-  requiredExtensionVersion: "0.4.0",
+  requiredExtensionVersion: "0.4.1",
   roundSizeMin: 1,
   roundSizeMax: 1,
   stopOnBlock: true,
@@ -325,7 +325,7 @@ sandbox.chrome.tabs.sendMessage = (_tabId, _message, callback) => callback({
     url: "https://www.coupang.com/vp/products/3001",
     final_url: "https://www.coupang.com/vp/products/3001",
     title: "Blocked candidate",
-    text: "visible text",
+    text: "Apple test product 1,244,170원 장바구니 바로구매",
   },
 });
 sandbox.fetch = async () => ({
@@ -376,7 +376,7 @@ removedWindowIds.length = 0;
 
 const continueOnBlockPayload = normalizeBatchPayload({
   batchId: "clb_v034_continue_on_block",
-  requiredExtensionVersion: "0.4.0",
+  requiredExtensionVersion: "0.4.1",
   roundSizeMin: 1,
   roundSizeMax: 1,
   stopOnBlock: false,
@@ -408,7 +408,7 @@ sandbox.chrome.tabs.sendMessage = (_tabId, _message, callback) => callback({
     url: "https://www.coupang.com/vp/products/3101",
     final_url: "https://www.coupang.com/vp/products/3101",
     title: "Blocked but continue",
-    text: "visible text",
+    text: "Apple test product 1,244,170원 장바구니 바로구매",
   },
 });
 sandbox.fetch = async () => ({
@@ -445,7 +445,7 @@ removedTabIds.length = 0;
 
 const thresholdPayload = normalizeBatchPayload({
   batchId: "clb_v034_threshold_two",
-  requiredExtensionVersion: "0.4.0",
+  requiredExtensionVersion: "0.4.1",
   roundSizeMin: 1,
   roundSizeMax: 1,
   stopOnBlock: true,
@@ -481,7 +481,7 @@ sandbox.chrome.tabs.sendMessage = (_tabId, _message, callback) => callback({
     url: "https://www.coupang.com/vp/products/3201",
     final_url: "https://www.coupang.com/vp/products/3201",
     title: "First blocked",
-    text: "visible text",
+    text: "Apple test product 1,244,170원 장바구니 바로구매",
   },
 });
 sandbox.fetch = async () => ({
@@ -516,7 +516,7 @@ sandbox.chrome.tabs.sendMessage = (_tabId, _message, callback) => callback({
     url: "https://www.coupang.com/vp/products/3202",
     final_url: "https://www.coupang.com/vp/products/3202",
     title: "Second blocked",
-    text: "visible text",
+    text: "Apple test product 1,244,170원 장바구니 바로구매",
   },
 });
 
@@ -537,4 +537,4 @@ assert.equal(getBatchTabEntryForTest(3205), undefined);
 assert.notEqual(getBatchTabEntryForTest(3204), undefined,
   "다른 배치 탭은 임계치 도달 시에도 유지되어야 한다");
 
-console.log("v0.4.0 blocked-detection and batch-tab cleanup tests passed");
+console.log("v0.4.1 blocked-detection and batch-tab cleanup tests passed");

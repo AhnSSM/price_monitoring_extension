@@ -122,6 +122,7 @@ globalThis.__batchTestExports = {
   randomDelaySeconds,
   detectBlockedResponse,
   shouldStopBatch,
+  validatePayloadShape,
   buildInterWaveDelaySeconds,
   markUnstartedItemsSkipped,
   setActiveBatchRunForTest: (batchRun) => { activeBatchRun = batchRun; },
@@ -156,6 +157,7 @@ const {
   randomDelaySeconds,
   detectBlockedResponse,
   shouldStopBatch,
+  validatePayloadShape,
   buildInterWaveDelaySeconds,
   markUnstartedItemsSkipped,
   setActiveBatchRunForTest,
@@ -166,7 +168,7 @@ const {
 } = sandbox.__batchTestExports;
 
 // === Version, cap, and defaults ===
-assert.equal(EXTENSION_VERSION, "0.4.0");
+assert.equal(EXTENSION_VERSION, "0.4.1");
 assert.equal(BATCH_CANDIDATE_CAP, 30);
 assert.equal(DEFAULT_BATCH_ROUND_SIZE_MIN, 8);
 assert.equal(DEFAULT_BATCH_ROUND_SIZE_MAX, 12);
@@ -189,7 +191,7 @@ const candidates = Array.from({ length: 30 }, (_value, index) => {
 
 const payload = normalizeBatchPayload({
   batchId: "clb_wave_v040",
-  requiredExtensionVersion: "0.4.0",
+  requiredExtensionVersion: "0.4.1",
   roundSizeMin: 8,
   roundSizeMax: 12,
   roundSizeMode: "random",
@@ -211,9 +213,9 @@ assert.equal(payload.blockStopThreshold, 1);
 assert.equal(payload.sessionMode, "incognito");
 assert.equal(payload.sessionRotation, "per_round");
 assert.ok(!Object.prototype.hasOwnProperty.call(payload, "wavePattern"),
-  "v0.4.0 payload should not expose wavePattern");
+  "v0.4.1 payload should not expose wavePattern");
 assert.ok(!Object.prototype.hasOwnProperty.call(payload, "concurrency"),
-  "v0.4.0 payload should not expose concurrency");
+  "v0.4.1 payload should not expose concurrency");
 
 const batchRun = createBatchRun(payload);
 assert.equal(batchRun.status.currentRound, 0);
@@ -266,7 +268,7 @@ for (let run = 0; run < SAMPLE_RUNS; run += 1) {
 // === Default to 8-12 when server omits roundSizeMin/Max/Mode ===
 const defaultsPayload = normalizeBatchPayload({
   batchId: "clb_wave_v040_defaults",
-  requiredExtensionVersion: "0.4.0",
+  requiredExtensionVersion: "0.4.1",
   candidates,
 });
 assert.equal(defaultsPayload.roundSize.min, 8);
@@ -276,7 +278,7 @@ assert.equal(defaultsPayload.roundSize.mode, "random");
 // === snake_case aliases accepted ===
 const snakePayload = normalizeBatchPayload({
   batchId: "clb_wave_v040_snake",
-  requiredExtensionVersion: "0.4.0",
+  requiredExtensionVersion: "0.4.1",
   round_size_min: 6,
   round_size_max: 9,
   round_size_mode: "random",
@@ -292,7 +294,7 @@ assert.equal(snakePayload.waveSleepMaxSeconds, 17);
 // === Impossible range normalization: max < min, min < 1, max > cap ===
 const invertedPayload = normalizeBatchPayload({
   batchId: "clb_wave_v040_inverted",
-  requiredExtensionVersion: "0.4.0",
+  requiredExtensionVersion: "0.4.1",
   roundSizeMin: 20,
   roundSizeMax: 8,
   candidates,
@@ -303,7 +305,7 @@ assert.equal(invertedPayload.roundSize.max, invertedPayload.roundSize.min,
 
 const zeroMinPayload = normalizeBatchPayload({
   batchId: "clb_wave_v040_zero",
-  requiredExtensionVersion: "0.4.0",
+  requiredExtensionVersion: "0.4.1",
   roundSizeMin: 0,
   roundSizeMax: 12,
   candidates,
@@ -313,7 +315,7 @@ assert.equal(zeroMinPayload.roundSize.max, 12);
 
 const overCapPayload = normalizeBatchPayload({
   batchId: "clb_wave_v040_overcap",
-  requiredExtensionVersion: "0.4.0",
+  requiredExtensionVersion: "0.4.1",
   roundSizeMin: 8,
   roundSizeMax: 100,
   candidates,
@@ -330,7 +332,7 @@ const overflow = Array.from({ length: 31 }, (_value, index) => ({
 assert.throws(
   () => normalizeBatchPayload({
     batchId: "clb_overflow",
-    requiredExtensionVersion: "0.4.0",
+    requiredExtensionVersion: "0.4.1",
     roundSizeMin: 8,
     roundSizeMax: 12,
     candidates: overflow,
@@ -346,7 +348,7 @@ const smallCandidates = Array.from({ length: 7 }, (_value, index) => ({
 }));
 const smallPayload = normalizeBatchPayload({
   batchId: "clb_small",
-  requiredExtensionVersion: "0.4.0",
+  requiredExtensionVersion: "0.4.1",
   roundSizeMin: 8,
   roundSizeMax: 12,
   candidates: smallCandidates,
@@ -378,7 +380,7 @@ for (let i = 0; i < 50; i += 1) {
 // === Legacy mode: explicit mode=legacy + wavePattern returns deterministic pattern ===
 const legacyPayload = normalizeBatchPayload({
   batchId: "clb_legacy",
-  requiredExtensionVersion: "0.4.0",
+  requiredExtensionVersion: "0.4.1",
   roundSizeMode: "legacy",
   wavePattern: [6, 5, 4],
   candidates,
@@ -419,6 +421,135 @@ assert.equal(detectBlockedResponse({ statusCode: 429 }), true);
 assert.equal(detectBlockedResponse({ statusCode: 503 }), true);
 assert.equal(detectBlockedResponse({ responseBody: { status: "saved" }, statusCode: 200 }), false);
 assert.equal(detectBlockedResponse({ responseBody: { status: "queued" }, statusCode: 200 }), false);
+
+// === Payload readiness: shell/header text must not be sent to the server as a parse_failed row ===
+assert.throws(
+  () => validatePayloadShape({
+    url: "https://www.coupang.com/vp/products/empty-shell",
+    final_url: "https://www.coupang.com/vp/products/empty-shell",
+    title: "",
+    text: "카테고리 로그인 회원가입 고객센터 판매자 가입",
+  }),
+  /상품 정보가 아직 준비되지 않았습니다/,
+);
+
+assert.doesNotThrow(
+  () => validatePayloadShape({
+    url: "https://www.coupang.com/vp/products/ready-price",
+    final_url: "https://www.coupang.com/vp/products/ready-price",
+    title: "Apple ready",
+    text: "Apple 정품 아이패드 프로 1,244,170원 장바구니 담기 바로구매",
+  }),
+);
+
+// === Payload readiness: price-only product evidence (no cart/buy) must pass via price+product token ===
+// Korean text does not create JS word boundaries, so 1,244,170원 at end-of-text or followed by
+// punctuation/newline must still count as a price signal for ready product pages.
+assert.doesNotThrow(
+  () => validatePayloadShape({
+    url: "https://www.coupang.com/vp/products/price-only",
+    final_url: "https://www.coupang.com/vp/products/price-only",
+    title: "Apple 정품 아이패드 프로",
+    text: "Apple 정품 아이패드 프로 1,244,170원",
+  }),
+  "price-only Apple iPad 1,244,170원 at end-of-text must be ready",
+);
+
+assert.doesNotThrow(
+  () => validatePayloadShape({
+    url: "https://www.coupang.com/vp/products/price-only-trailing-punct",
+    final_url: "https://www.coupang.com/vp/products/price-only-trailing-punct",
+    title: "Apple Mac Pro M3",
+    text: "Apple Mac Pro M3\n가격 9,120,000원.",
+  }),
+  "price followed by trailing punctuation must still be ready",
+);
+
+assert.throws(
+  () => validatePayloadShape({
+    url: "https://www.coupang.com/vp/products/discount-only",
+    final_url: "https://www.coupang.com/vp/products/discount-only",
+    title: "Apple 할인 안내",
+    text: "Apple 상품 10만원 할인 쿠폰 안내",
+  }),
+  /상품 정보가 아직 준비되지 않았습니다/,
+  "만원 단위 할인 문구만 있으면 대표 가격 readiness로 보지 않아야 합니다",
+);
+
+// === Payload readiness: weak shipping/detail signals alone must NOT pass ===
+// 무료배송, 로켓배송, 상품 상세 can all appear on shell/header pages and must not
+// be treated as standalone product evidence.
+const weakSignalShellPages = [
+  { title: "", text: "상품 상세 설명 보기" },
+  { title: "", text: "쿠팡 무료배송 안내 회원가입 카테고리" },
+  { title: "", text: "로켓배송 안내" },
+];
+for (const payload of weakSignalShellPages) {
+  assert.throws(
+    () => validatePayloadShape({
+      url: "https://www.coupang.com/vp/products/weak-shell",
+      final_url: "https://www.coupang.com/vp/products/weak-shell",
+      title: payload.title,
+      text: payload.text,
+    }),
+    /상품 정보가 아직 준비되지 않았습니다/,
+    `weak shell text must throw: ${payload.text}`,
+  );
+}
+
+// === Payload readiness: Korean soldout tokens (품절 / 일시품절) must count as ready evidence ===
+// \b does not work for Korean tokens, so a bare 품절 must be detected directly.
+assert.doesNotThrow(
+  () => validatePayloadShape({
+    url: "https://www.coupang.com/vp/products/soldout-plain",
+    final_url: "https://www.coupang.com/vp/products/soldout-plain",
+    title: "Apple Mac Pro",
+    text: "Apple Mac Pro 품절",
+  }),
+  "품절 alone must be a readiness signal",
+);
+
+assert.doesNotThrow(
+  () => validatePayloadShape({
+    url: "https://www.coupang.com/vp/products/soldout-temp",
+    final_url: "https://www.coupang.com/vp/products/soldout-temp",
+    title: "Apple Mac Pro",
+    text: "Apple Mac Pro 일시품절",
+  }),
+  "일시품절 without space must be a readiness signal",
+);
+
+assert.doesNotThrow(
+  () => validatePayloadShape({
+    url: "https://www.coupang.com/vp/products/soldout-temp-spaced",
+    final_url: "https://www.coupang.com/vp/products/soldout-temp-spaced",
+    title: "Apple Mac Pro",
+    text: "Apple Mac Pro 일시 품절",
+  }),
+  "일시 품절 with space must be a readiness signal",
+);
+
+// === Payload readiness: Access Denied / permission denied must be standalone ready evidence ===
+// Blocked pages must not be hidden behind a retry by readiness; they need to flow to blocked cleanup.
+const blockedReadyPages = [
+  { title: "Access Denied", text: "Access Denied You don't have permission to access this resource." },
+  { title: "Access Denied", text: "Access Denied You do not have permission to access this resource." },
+  { title: "Access Denied", text: "Access Denied - You don't have permission for this URL." },
+  { title: "403 Forbidden", text: "Permission Denied - contact the administrator." },
+  { title: "Blocked", text: "access denied to this resource" },
+  { title: "Forbidden", text: "permission denied" },
+];
+for (const payload of blockedReadyPages) {
+  assert.doesNotThrow(
+    () => validatePayloadShape({
+      url: "https://www.coupang.com/vp/products/blocked-page",
+      final_url: "https://www.coupang.com/vp/products/blocked-page",
+      title: payload.title,
+      text: payload.text,
+    }),
+    `blocked page must be ready (not retry): ${payload.text}`,
+  );
+}
 
 // === Stop threshold and skipped marking ===
 const stopRun = createBatchRun(payload);
@@ -474,7 +605,7 @@ assert.ok(!Object.prototype.hasOwnProperty.call(secondStart, "wavePattern"),
   "lock response should not expose wavePattern");
 setActiveBatchRunForTest(null);
 
-// === v0.4.0: ping and start expose/enforce incognito permission ===
+// === v0.4.1: ping and start expose/enforce incognito permission ===
 sandbox.setIncognitoAllowedForTest(true);
 const allowedPing = await handleCurrentListPing();
 assert.equal(allowedPing.ok, true);
@@ -503,7 +634,7 @@ assert.equal(regularRun.status.sessionModeIsPrivate, false);
 sandbox.setIncognitoAllowedForTest(true);
 
 
-// === v0.4.0: buildTabOpenDelaySeconds continuous random within [min, max] ===
+// === v0.4.1: buildTabOpenDelaySeconds continuous random within [min, max] ===
 for (let i = 0; i < 200; i += 1) {
   const delay = buildTabOpenDelaySeconds({ tabOpenDelayMinSeconds: 0.3, tabOpenDelayMaxSeconds: 1.0 });
   assert.ok(typeof delay === "number", "delay should be a number");
@@ -525,13 +656,13 @@ assert.equal(buildTabOpenDelaySeconds({ tabOpenDelayMinSeconds: 1.0, tabOpenDela
 assert.equal(buildTabOpenDelaySeconds({ tabOpenDelayMinSeconds: 10, tabOpenDelayMaxSeconds: 10 }), 10,
   "min==max should return the bound regardless of cap");
 
-// === v0.4.0: payload exposes tabOpenDelayMinSeconds / tabOpenDelayMaxSeconds ===
+// === v0.4.1: payload exposes tabOpenDelayMinSeconds / tabOpenDelayMaxSeconds ===
 assert.equal(payload.tabOpenDelayMinSeconds, 0.3);
 assert.equal(payload.tabOpenDelayMaxSeconds, 1.0);
 
 const snakeDelayPayload = normalizeBatchPayload({
   batchId: "clb_snake",
-  requiredExtensionVersion: "0.4.0",
+  requiredExtensionVersion: "0.4.1",
   tab_open_delay_min_seconds: 0.4,
   tab_open_delay_max_seconds: 0.9,
   candidates,
@@ -541,7 +672,7 @@ assert.equal(snakeDelayPayload.tabOpenDelayMaxSeconds, 0.9);
 
 const clampedDelayPayload = normalizeBatchPayload({
   batchId: "clb_clamp",
-  requiredExtensionVersion: "0.4.0",
+  requiredExtensionVersion: "0.4.1",
   tabOpenDelayMinSeconds: 2.0,
   tabOpenDelayMaxSeconds: 0.5,
   candidates,
@@ -551,7 +682,7 @@ assert.equal(clampedDelayPayload.tabOpenDelayMaxSeconds, 2.0, "max<min must clam
 
 const cappedDelayPayload = normalizeBatchPayload({
   batchId: "clb_cap",
-  requiredExtensionVersion: "0.4.0",
+  requiredExtensionVersion: "0.4.1",
   tabOpenDelayMinSeconds: 0.1,
   tabOpenDelayMaxSeconds: 30,
   candidates,
@@ -560,17 +691,17 @@ assert.equal(cappedDelayPayload.tabOpenDelayMinSeconds, 0.3,
   "invalid min below default floor must fall back to 0.3");
 assert.ok(cappedDelayPayload.tabOpenDelayMaxSeconds <= 5.0001, "excessive max must be capped");
 
-// === v0.4.0: batchRun.status carries tab open delay fields and nextTabOpenDelaySeconds ===
+// === v0.4.1: batchRun.status carries tab open delay fields and nextTabOpenDelaySeconds ===
 assert.equal(batchRun.status.tabOpenDelayMinSeconds, 0.3);
 assert.equal(batchRun.status.tabOpenDelayMaxSeconds, 1.0);
 assert.ok(Object.prototype.hasOwnProperty.call(batchRun.status, "nextTabOpenDelaySeconds"),
   "status should expose nextTabOpenDelaySeconds");
 assert.equal(batchRun.status.nextTabOpenDelaySeconds, 0);
 
-// === v0.4.0: processBatchRound opens tabs one-by-one with random ms delay (300-1000) ===
+// === v0.4.1: processBatchRound opens tabs one-by-one with random ms delay (300-1000) ===
 const staggerPayload = normalizeBatchPayload({
   batchId: "clb_stagger",
-  requiredExtensionVersion: "0.4.0",
+  requiredExtensionVersion: "0.4.1",
   roundSizeMin: 8,
   roundSizeMax: 5,
   tabOpenDelayMinSeconds: 0.3,
@@ -607,10 +738,10 @@ assert.equal(getCreatedTabsForTest().length, 5,
 assert.equal(staggerRun.status.nextTabOpenDelaySeconds, 0,
   "status.nextTabOpenDelaySeconds should reset to 0 after the round completes");
 
-// === v0.4.0: incognito rounds use one owned private window and open tabs inside it ===
+// === v0.4.1: incognito rounds use one owned private window and open tabs inside it ===
 const privatePayload = normalizeBatchPayload({
   batchId: "clb_private_round",
-  requiredExtensionVersion: "0.4.0",
+  requiredExtensionVersion: "0.4.1",
   roundSizeMin: 2,
   roundSizeMax: 2,
   sessionMode: "incognito",
@@ -646,4 +777,4 @@ assert.equal(privateRun.status.closedOwnedWindowsSkipped, 0);
 // both register their own timeout timers, which are part of the normal
 // per-item timeout policy and are not processBatchRound's concern.
 
-console.log("v0.4.0 batch runner tests passed");
+console.log("v0.4.1 batch runner tests passed");

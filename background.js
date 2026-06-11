@@ -1,4 +1,4 @@
-const EXTENSION_VERSION = "0.4.0";
+const EXTENSION_VERSION = "0.4.1";
 const SERVER_URL = "http://100.118.184.5:5000";
 const IMPORT_PATH = "/api/dedicated/coupang_apple_return_sale/detail-check/import";
 const AUTO_MODE_KEY = "autoModeEnabled";
@@ -28,6 +28,8 @@ const TAB_LOAD_TIMEOUT_MS = 30 * 1000;
 const PAYLOAD_TIMEOUT_MS = 20 * 1000;
 const PAYLOAD_RETRY_INTERVAL_MS = 1500;
 const SUPPORTED_PRODUCT_PAGE_RE = /^https:\/\/www\.coupang\.com\/vp\/products\/[^/?#]+/;
+const PRODUCT_PRICE_SIGNAL_RE = /(?:\d{1,3}(?:,\d{3})+|\d{4,})\s*원/;
+const PRODUCT_READY_SIGNAL_RE = /(장바구니|바로\s*구매|구매하기|쿠팡상품번호|일시\s*품절|품절|Access\s*Denied|Robot\s*Check|captcha|You\s*(?:don't|do\s+not)\s*have\s*permission|Permission\s*Denied|access\s*denied|permission\s*denied)/i;
 
 let activeBatchRun = null;
 const batchTabRegistry = new Map();
@@ -1255,7 +1257,8 @@ function shouldRetryPayloadError(error) {
   return message.includes("Could not establish connection") ||
     message.includes("Receiving end does not exist") ||
     message.includes("지원하지 않는 페이지입니다.") ||
-    message.includes("보이는 본문 텍스트가 비어 있습니다.");
+    message.includes("보이는 본문 텍스트가 비어 있습니다.") ||
+    message.includes("상품 정보가 아직 준비되지 않았습니다.");
 }
 
 function waitForTabComplete(tabId, timeoutMs) {
@@ -1312,6 +1315,21 @@ function validatePayloadShape(payload) {
   if (!payload.text.trim()) {
     throw new Error("보이는 본문 텍스트가 비어 있습니다.");
   }
+
+  if (!hasReadyProductEvidence(payload)) {
+    throw new Error("상품 정보가 아직 준비되지 않았습니다.");
+  }
+}
+
+function hasReadyProductEvidence(payload) {
+  const text = typeof payload.text === "string" ? payload.text : "";
+  const title = typeof payload.title === "string" ? payload.title : "";
+  const evidenceText = `${title}\n${text}`;
+  return PRODUCT_READY_SIGNAL_RE.test(evidenceText) ||
+    (
+      PRODUCT_PRICE_SIGNAL_RE.test(evidenceText) &&
+      /상품|Apple|Mac|iPad|iPhone|Watch|쿠팡|반품|배송/i.test(evidenceText)
+    );
 }
 
 function buildImportBody(payload) {

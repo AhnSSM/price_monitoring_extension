@@ -9,7 +9,7 @@ LLM 또는 coding agent가 문제 해결을 도울 경우 [LLM 설치 지원 가
 | `활성 탭을 찾을 수 없습니다.` | 브라우저가 현재 탭 정보를 못 줌 | Coupang 탭을 활성화하고 popup을 다시 열기 |
 | `www.coupang.com 상품 상세 페이지에서만 사용할 수 있습니다.` | 현재 탭이 `https://www.coupang.com/vp/products/*`가 아님 | Coupang 상품 상세 페이지에서 실행 |
 | `보이는 본문 텍스트가 비어 있습니다.` | page body text가 비어 있음 | 페이지 로드 완료 후 재시도, captcha/blocked page 여부 확인 |
-| `서버가 이 확장 버전을 거부했습니다. 업데이트 또는 재설치 후 자동 송신을 다시 켜세요.` | 서버가 `unsupported_extension_version` 또는 `extension_version_mismatch`를 반환 | 확장 reload 또는 재설치 후 다시 ON, 서버가 `price_monitoring v0.2.0+`이고 `extension_version 0.4.0`을 수용하는지 확인 |
+| `서버가 이 확장 버전을 거부했습니다. 업데이트 또는 재설치 후 자동 송신을 다시 켜세요.` | 서버가 `unsupported_extension_version` 또는 `extension_version_mismatch`를 반환 | 확장 reload 또는 재설치 후 다시 ON, 서버가 `price_monitoring v0.2.0+`이고 `extension_version 0.4.1`을 수용하는지 확인 |
 | `같은 상품 자동 송신을 최근 10분 안에 이미 보냈습니다.` | dedup suppression이 동작함 | 같은 상품을 다시 자동 전송할 필요가 없으면 그대로 두고, 즉시 재전송이 필요하면 수동 `현재 페이지 저장` 사용 |
 | `전송 실패: HTTP 401` | 서버 gate 또는 배포 상태 불일치 가능성 | 서버 origin, source gate, 배포 상태 확인 |
 | `전송 실패: HTTP 403` | 서버 정책 차단 가능성 | Tailscale 접속 상태, source gate, 서버 로그 확인 |
@@ -18,7 +18,7 @@ LLM 또는 coding agent가 문제 해결을 도울 경우 [LLM 설치 지원 가
 
 ## current-list batch 메시지별 조치
 
-`v0.4.0`부터 popup의 `최근 current-list batch` 카드는 `모드`, `라운드 N/M`, `닫은 시크릿 창 K개`, 그리고 `errorCode` 기반 안내를 함께 보여 줍니다. 대표 상태와 조치는 아래와 같습니다.
+`v0.4.1`부터 popup의 `최근 current-list batch` 카드는 `모드`, `라운드 N/M`, `닫은 시크릿 창 K개`, 그리고 `errorCode` 기반 안내를 함께 보여 줍니다. 대표 상태와 조치는 아래와 같습니다.
 
 | 상태/안내 | 의미 | 조치 |
 |-----------|------|------|
