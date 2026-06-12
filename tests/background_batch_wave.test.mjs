@@ -16,6 +16,7 @@ const scheduledDelays = [];
 const createdTabs = [];
 const createdWindows = [];
 const removedWindows = [];
+const removedTabIds = [];
 let incognitoAllowedForTest = true;
 const recordSetTimeout = (handler, ms, ...rest) => {
   const numericMs = Number(ms);
@@ -31,6 +32,8 @@ const resetCreatedTabsForTest = () => { createdTabs.length = 0; };
 const getCreatedWindowsForTest = () => createdWindows.slice();
 const resetCreatedWindowsForTest = () => { createdWindows.length = 0; removedWindows.length = 0; };
 const getRemovedWindowsForTest = () => removedWindows.slice();
+const getRemovedTabIdsForTest = () => removedTabIds.slice();
+const resetRemovedTabIdsForTest = () => { removedTabIds.length = 0; };
 const setIncognitoAllowedForTest = (allowed) => { incognitoAllowedForTest = Boolean(allowed); };
 const sandbox = {
   console,
@@ -64,7 +67,10 @@ const sandbox = {
         callback({ id: 9000 + createdTabs.length, windowId: createProperties.windowId || 1 });
       },
       get: (_tabId, callback) => { if (typeof callback === "function") callback({ id: _tabId, status: "complete" }); },
-      remove: (_tabId, callback) => { if (typeof callback === "function") callback(); },
+      remove: (tabId, callback) => {
+        removedTabIds.push(tabId);
+        if (typeof callback === "function") callback();
+      },
       sendMessage: () => {
         throw new Error("stop_payload_retry_for_test");
       },
@@ -78,7 +84,12 @@ const sandbox = {
     windows: {
       onRemoved: { addListener: (listener) => listeners.windowRemoved = listener },
       create: (createProperties, callback) => {
-        const window = { id: 7000 + createdWindows.length + 1, incognito: createProperties.incognito === true };
+        const placeholderTabId = 8000 + createdWindows.length + 1;
+        const window = {
+          id: 7000 + createdWindows.length + 1,
+          incognito: createProperties.incognito === true,
+          tabs: [{ id: placeholderTabId, url: "about:blank" }],
+        };
         createdWindows.push(createProperties);
         callback(window);
       },
@@ -97,6 +108,8 @@ sandbox.resetCreatedTabsForTest = resetCreatedTabsForTest;
 sandbox.getCreatedWindowsForTest = getCreatedWindowsForTest;
 sandbox.resetCreatedWindowsForTest = resetCreatedWindowsForTest;
 sandbox.getRemovedWindowsForTest = getRemovedWindowsForTest;
+sandbox.getRemovedTabIdsForTest = getRemovedTabIdsForTest;
+sandbox.resetRemovedTabIdsForTest = resetRemovedTabIdsForTest;
 sandbox.setIncognitoAllowedForTest = setIncognitoAllowedForTest;
 
 vm.createContext(sandbox);
@@ -168,7 +181,7 @@ const {
 } = sandbox.__batchTestExports;
 
 // === Version, cap, and defaults ===
-assert.equal(EXTENSION_VERSION, "0.4.1");
+assert.equal(EXTENSION_VERSION, "0.4.2");
 assert.equal(BATCH_CANDIDATE_CAP, 30);
 assert.equal(DEFAULT_BATCH_ROUND_SIZE_MIN, 8);
 assert.equal(DEFAULT_BATCH_ROUND_SIZE_MAX, 12);
@@ -191,7 +204,7 @@ const candidates = Array.from({ length: 30 }, (_value, index) => {
 
 const payload = normalizeBatchPayload({
   batchId: "clb_wave_v040",
-  requiredExtensionVersion: "0.4.1",
+  requiredExtensionVersion: "0.4.2",
   roundSizeMin: 8,
   roundSizeMax: 12,
   roundSizeMode: "random",
@@ -268,7 +281,7 @@ for (let run = 0; run < SAMPLE_RUNS; run += 1) {
 // === Default to 8-12 when server omits roundSizeMin/Max/Mode ===
 const defaultsPayload = normalizeBatchPayload({
   batchId: "clb_wave_v040_defaults",
-  requiredExtensionVersion: "0.4.1",
+  requiredExtensionVersion: "0.4.2",
   candidates,
 });
 assert.equal(defaultsPayload.roundSize.min, 8);
@@ -278,7 +291,7 @@ assert.equal(defaultsPayload.roundSize.mode, "random");
 // === snake_case aliases accepted ===
 const snakePayload = normalizeBatchPayload({
   batchId: "clb_wave_v040_snake",
-  requiredExtensionVersion: "0.4.1",
+  requiredExtensionVersion: "0.4.2",
   round_size_min: 6,
   round_size_max: 9,
   round_size_mode: "random",
@@ -294,7 +307,7 @@ assert.equal(snakePayload.waveSleepMaxSeconds, 17);
 // === Impossible range normalization: max < min, min < 1, max > cap ===
 const invertedPayload = normalizeBatchPayload({
   batchId: "clb_wave_v040_inverted",
-  requiredExtensionVersion: "0.4.1",
+  requiredExtensionVersion: "0.4.2",
   roundSizeMin: 20,
   roundSizeMax: 8,
   candidates,
@@ -305,7 +318,7 @@ assert.equal(invertedPayload.roundSize.max, invertedPayload.roundSize.min,
 
 const zeroMinPayload = normalizeBatchPayload({
   batchId: "clb_wave_v040_zero",
-  requiredExtensionVersion: "0.4.1",
+  requiredExtensionVersion: "0.4.2",
   roundSizeMin: 0,
   roundSizeMax: 12,
   candidates,
@@ -315,7 +328,7 @@ assert.equal(zeroMinPayload.roundSize.max, 12);
 
 const overCapPayload = normalizeBatchPayload({
   batchId: "clb_wave_v040_overcap",
-  requiredExtensionVersion: "0.4.1",
+  requiredExtensionVersion: "0.4.2",
   roundSizeMin: 8,
   roundSizeMax: 100,
   candidates,
@@ -332,7 +345,7 @@ const overflow = Array.from({ length: 31 }, (_value, index) => ({
 assert.throws(
   () => normalizeBatchPayload({
     batchId: "clb_overflow",
-    requiredExtensionVersion: "0.4.1",
+    requiredExtensionVersion: "0.4.2",
     roundSizeMin: 8,
     roundSizeMax: 12,
     candidates: overflow,
@@ -348,7 +361,7 @@ const smallCandidates = Array.from({ length: 7 }, (_value, index) => ({
 }));
 const smallPayload = normalizeBatchPayload({
   batchId: "clb_small",
-  requiredExtensionVersion: "0.4.1",
+  requiredExtensionVersion: "0.4.2",
   roundSizeMin: 8,
   roundSizeMax: 12,
   candidates: smallCandidates,
@@ -380,7 +393,7 @@ for (let i = 0; i < 50; i += 1) {
 // === Legacy mode: explicit mode=legacy + wavePattern returns deterministic pattern ===
 const legacyPayload = normalizeBatchPayload({
   batchId: "clb_legacy",
-  requiredExtensionVersion: "0.4.1",
+  requiredExtensionVersion: "0.4.2",
   roundSizeMode: "legacy",
   wavePattern: [6, 5, 4],
   candidates,
@@ -662,7 +675,7 @@ assert.equal(payload.tabOpenDelayMaxSeconds, 1.0);
 
 const snakeDelayPayload = normalizeBatchPayload({
   batchId: "clb_snake",
-  requiredExtensionVersion: "0.4.1",
+  requiredExtensionVersion: "0.4.2",
   tab_open_delay_min_seconds: 0.4,
   tab_open_delay_max_seconds: 0.9,
   candidates,
@@ -672,7 +685,7 @@ assert.equal(snakeDelayPayload.tabOpenDelayMaxSeconds, 0.9);
 
 const clampedDelayPayload = normalizeBatchPayload({
   batchId: "clb_clamp",
-  requiredExtensionVersion: "0.4.1",
+  requiredExtensionVersion: "0.4.2",
   tabOpenDelayMinSeconds: 2.0,
   tabOpenDelayMaxSeconds: 0.5,
   candidates,
@@ -682,7 +695,7 @@ assert.equal(clampedDelayPayload.tabOpenDelayMaxSeconds, 2.0, "max<min must clam
 
 const cappedDelayPayload = normalizeBatchPayload({
   batchId: "clb_cap",
-  requiredExtensionVersion: "0.4.1",
+  requiredExtensionVersion: "0.4.2",
   tabOpenDelayMinSeconds: 0.1,
   tabOpenDelayMaxSeconds: 30,
   candidates,
@@ -701,7 +714,7 @@ assert.equal(batchRun.status.nextTabOpenDelaySeconds, 0);
 // === v0.4.1: processBatchRound opens tabs one-by-one with random ms delay (300-1000) ===
 const staggerPayload = normalizeBatchPayload({
   batchId: "clb_stagger",
-  requiredExtensionVersion: "0.4.1",
+  requiredExtensionVersion: "0.4.2",
   roundSizeMin: 8,
   roundSizeMax: 5,
   tabOpenDelayMinSeconds: 0.3,
@@ -741,7 +754,7 @@ assert.equal(staggerRun.status.nextTabOpenDelaySeconds, 0,
 // === v0.4.1: incognito rounds use one owned private window and open tabs inside it ===
 const privatePayload = normalizeBatchPayload({
   batchId: "clb_private_round",
-  requiredExtensionVersion: "0.4.1",
+  requiredExtensionVersion: "0.4.2",
   roundSizeMin: 2,
   roundSizeMax: 2,
   sessionMode: "incognito",
@@ -777,4 +790,184 @@ assert.equal(privateRun.status.closedOwnedWindowsSkipped, 0);
 // both register their own timeout timers, which are part of the normal
 // per-item timeout policy and are not processBatchRound's concern.
 
-console.log("v0.4.1 batch runner tests passed");
+
+// === v0.4.2: openRoundSession tracks the about:blank placeholder tab id and removes it after first real product tab ===
+{
+  resetCreatedWindowsForTest();
+  resetCreatedTabsForTest();
+  resetRemovedTabIdsForTest();
+  resetScheduledDelaysForTest();
+  const placeholderRun = createBatchRun(normalizeBatchPayload({
+    batchId: "clb_placeholder_round",
+    requiredExtensionVersion: "0.4.2",
+    roundSizeMin: 2,
+    roundSizeMax: 2,
+    sessionMode: "incognito",
+    sessionRotation: "per_round",
+    candidates: candidates.slice(0, 2),
+  }));
+  const placeholderSession = await openRoundSession(placeholderRun);
+  assert.equal(placeholderSession.windowId, 7001,
+    "openRoundSession must return the new incognito window id");
+  assert.equal(placeholderRun.roundSession.placeholderTabId, 8001,
+    "openRoundSession must record the about:blank placeholder tab id from createdWindow.tabs[0].id");
+  assert.equal(placeholderRun.roundSession.placeholderClosed, false,
+    "openRoundSession must mark placeholderClosed=false so the first product tab can close it");
+
+  const placeholderWave = takeNextBatchWave(placeholderRun);
+  await processBatchRound(placeholderRun, placeholderWave, placeholderSession);
+
+  const removedIds = getRemovedTabIdsForTest().slice();
+  const placeholderRemovals = removedIds.filter((id) => id === 8001);
+  assert.equal(placeholderRemovals.length, 1,
+    `placeholder about:blank tab must be removed exactly once, got ${placeholderRemovals.length} removals of 8001: ${JSON.stringify(removedIds)}`);
+  assert.equal(placeholderRun.roundSession.placeholderClosed, true,
+    "placeholderClosed must be marked true after the first real product tab triggers the cleanup");
+  // Real product tabs must still have been opened.
+  const productTabCalls = getCreatedTabsForTest().filter((tab) => tab && tab.url && tab.url !== "about:blank");
+  assert.ok(productTabCalls.length >= 1,
+    "product tabs must still be opened in the owned incognito window");
+}
+
+// === v0.4.2: placeholder cleanup falls back to the requested windowId when tabs.create omits windowId ===
+{
+  resetCreatedWindowsForTest();
+  resetCreatedTabsForTest();
+  resetRemovedTabIdsForTest();
+  resetScheduledDelaysForTest();
+  const originalTabsCreate = sandbox.chrome.tabs.create;
+  sandbox.chrome.tabs.create = (createProperties, callback) => {
+    createdTabs.push(createProperties);
+    if (typeof callback === "function") {
+      callback({ id: 9000 + createdTabs.length });
+    }
+  };
+  const missingWindowIdRun = createBatchRun(normalizeBatchPayload({
+    batchId: "clb_placeholder_missing_window_id",
+    requiredExtensionVersion: "0.4.2",
+    roundSizeMin: 1,
+    roundSizeMax: 1,
+    sessionMode: "incognito",
+    sessionRotation: "per_round",
+    candidates: candidates.slice(0, 1),
+  }));
+  const missingWindowIdSession = await openRoundSession(missingWindowIdRun);
+  assert.equal(missingWindowIdRun.roundSession.placeholderTabId, 8001,
+    "window creation must still record the placeholder tab id");
+  await processBatchRound(missingWindowIdRun, takeNextBatchWave(missingWindowIdRun), missingWindowIdSession);
+  const missingWindowIdPlaceholderRemovals = getRemovedTabIdsForTest().filter((id) => id === 8001);
+  assert.deepEqual(missingWindowIdPlaceholderRemovals, [8001],
+    "placeholder must close using the requested round windowId even when tabs.create omits windowId");
+  sandbox.chrome.tabs.create = originalTabsCreate;
+}
+
+// === v0.4.2: placeholder is not re-removed on subsequent product tabs in the same round ===
+{
+  resetCreatedWindowsForTest();
+  resetCreatedTabsForTest();
+  resetRemovedTabIdsForTest();
+  resetScheduledDelaysForTest();
+  const secondRun = createBatchRun(normalizeBatchPayload({
+    batchId: "clb_placeholder_once",
+    requiredExtensionVersion: "0.4.2",
+    roundSizeMin: 3,
+    roundSizeMax: 3,
+    sessionMode: "incognito",
+    sessionRotation: "per_round",
+    candidates: candidates.slice(0, 3),
+  }));
+  const secondSession = await openRoundSession(secondRun);
+  assert.equal(secondRun.roundSession.placeholderTabId, 8001,
+    "second window must also record its own placeholder tab id");
+  const secondWave = takeNextBatchWave(secondRun);
+  await processBatchRound(secondRun, secondWave, secondSession);
+  const secondRemovedIds = getRemovedTabIdsForTest().slice();
+  const secondPlaceholderRemovals = secondRemovedIds.filter((id) => id === 8001);
+  assert.equal(secondPlaceholderRemovals.length, 1,
+    `placeholder about:blank tab must be removed exactly once across all product tabs (got ${secondPlaceholderRemovals.length}): ${JSON.stringify(secondRemovedIds)}`);
+}
+
+// === v0.4.2: graceful fallback when createdWindow.tabs is missing or id is not numeric ===
+{
+  resetCreatedWindowsForTest();
+  resetCreatedTabsForTest();
+  resetRemovedTabIdsForTest();
+  resetScheduledDelaysForTest();
+  // Override windows.create to return a window without tabs.
+  const originalWindowsCreate = sandbox.chrome.windows.create;
+  sandbox.chrome.windows.create = (createProperties, callback) => {
+    const window = { id: 7000 + createdWindows.length + 1, incognito: createProperties.incognito === true };
+    createdWindows.push(createProperties);
+    callback(window);
+  };
+  const fallbackRun = createBatchRun(normalizeBatchPayload({
+    batchId: "clb_placeholder_fallback",
+    requiredExtensionVersion: "0.4.2",
+    roundSizeMin: 2,
+    roundSizeMax: 2,
+    sessionMode: "incognito",
+    sessionRotation: "per_round",
+    candidates: candidates.slice(0, 2),
+  }));
+  const fallbackSession = await openRoundSession(fallbackRun);
+  assert.equal(fallbackSession.windowId, 7001,
+    "openRoundSession must still return the new incognito window id even if tabs is missing");
+  assert.equal(fallbackRun.roundSession.placeholderTabId, null,
+    "openRoundSession must gracefully leave placeholderTabId=null when tabs is missing");
+  assert.equal(fallbackRun.roundSession.placeholderClosed, false,
+    "openRoundSession must keep placeholderClosed=false when no placeholder is tracked");
+
+  const fallbackWave = takeNextBatchWave(fallbackRun);
+  await processBatchRound(fallbackRun, fallbackWave, fallbackSession);
+  const productTabCalls = getCreatedTabsForTest().filter((tab) => tab && tab.url && tab.url !== "about:blank");
+  assert.equal(productTabCalls.length, 2,
+    "product tabs must still be opened even when placeholder tab is not tracked");
+  const removedTabsAfterFallback = getRemovedTabIdsForTest().filter((id) => id === null || id === undefined);
+  assert.equal(removedTabsAfterFallback.length, 0,
+    "no placeholder remove may be issued when the placeholder is not tracked");
+  sandbox.chrome.windows.create = originalWindowsCreate;
+}
+
+// === v0.4.2: placeholder removal that hits 'No tab with id' is non-fatal ===
+{
+  resetCreatedWindowsForTest();
+  resetCreatedTabsForTest();
+  resetRemovedTabIdsForTest();
+  resetScheduledDelaysForTest();
+  const noTabRun = createBatchRun(normalizeBatchPayload({
+    batchId: "clb_placeholder_missing",
+    requiredExtensionVersion: "0.4.2",
+    roundSizeMin: 1,
+    roundSizeMax: 1,
+    sessionMode: "incognito",
+    sessionRotation: "per_round",
+    candidates: candidates.slice(0, 1),
+  }));
+  const noTabSession = await openRoundSession(noTabRun);
+  assert.equal(noTabRun.roundSession.placeholderTabId, 8001);
+  // Override chrome.tabs.remove to fail with "No tab with id" specifically for the placeholder.
+  const originalTabsRemove = sandbox.chrome.tabs.remove;
+  sandbox.chrome.tabs.remove = (tabId, callback) => {
+    if (typeof sandbox.chrome.runtime.lastError === "undefined" || sandbox.chrome.runtime.lastError === null) {
+      sandbox.chrome.runtime.lastError = null;
+    }
+    if (tabId === 8001) {
+      sandbox.chrome.runtime.lastError = { message: "No tab with id: 8001." };
+      if (typeof callback === "function") callback();
+      sandbox.chrome.runtime.lastError = null;
+      return;
+    }
+    removedTabIds.push(tabId);
+    if (typeof callback === "function") callback();
+  };
+  const noTabWave = takeNextBatchWave(noTabRun);
+  await processBatchRound(noTabRun, noTabWave, noTabSession);
+  // processBatchItem must not throw: the item should still be classified (failure here because sendMessage throws).
+  assert.equal(noTabRun.items[0].status, "failure",
+    "item import must still complete (failure is fine) when placeholder remove returns 'No tab with id'");
+  assert.equal(noTabRun.roundSession.placeholderClosed, true,
+    "placeholderClosed must be marked true even when removeTab rejects with 'No tab with id'");
+  sandbox.chrome.tabs.remove = originalTabsRemove;
+}
+
+console.log("v0.4.2 batch runner tests passed");

@@ -5,7 +5,7 @@
 | 항목 | 예시 | 설명 |
 |------|------|------|
 | 서버 URL | `http://100.118.184.5:5000` | `price_monitoring` 서버 origin입니다. popup에 고정 표시됩니다. |
-| 확장 버전 | `0.4.1` | popup 헤더와 import 요청 `extension_version`, 진단용 `X-Price-Monitoring-Extension-Version` header에 함께 실립니다. |
+| 확장 버전 | `0.4.2` | popup 헤더와 import 요청 `extension_version`, 진단용 `X-Price-Monitoring-Extension-Version` header에 함께 실립니다. |
 | 시크릿/프라이빗 허용 | Brave `Allow in Private` / Chrome `Allow in Incognito` | `v0.4.1`의 기본 current-list batch는 시크릿 창에서 실행되므로 반드시 켜져 있어야 합니다. |
 
 ## 허용된 서버 origin
@@ -56,14 +56,14 @@
 
 ```text
 Content-Type: application/json
-X-Price-Monitoring-Extension-Version: 0.4.1
+X-Price-Monitoring-Extension-Version: 0.4.2
 ```
 
 요청 body는 현재 Coupang 탭에서 수집한 아래 값입니다.
 
 ```json
 {
-  "extension_version": "0.4.1",
+  "extension_version": "0.4.2",
   "source": "manual_popup 또는 auto_page_view",
   "url": "...",
   "final_url": "...",
@@ -72,7 +72,7 @@ X-Price-Monitoring-Extension-Version: 0.4.1
 }
 ```
 
-서버는 `extension_version: "0.4.1"`을 수용하는 `price_monitoring v0.2.0+`이어야 합니다. 서버가 `unsupported_extension_version` 또는 `extension_version_mismatch`를 반환하면 자동 송신은 OFF로 전환되고, current-list batch는 거부됩니다.
+서버는 `extension_version: "0.4.2"`을 수용하는 `price_monitoring v0.2.0+`이어야 합니다. 서버가 `unsupported_extension_version` 또는 `extension_version_mismatch`를 반환하면 자동 송신은 OFF로 전환되고, current-list batch는 거부됩니다.
 
 ## 자동 송신 상태 저장
 

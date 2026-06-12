@@ -121,7 +121,7 @@ sandbox.chrome.tabs.remove = (tabId, callback) => {
 };
 
 // === v0.4.1 version bump ===
-assert.equal(EXTENSION_VERSION, "0.4.1", "EXTENSION_VERSION must be bumped to 0.4.1");
+assert.equal(EXTENSION_VERSION, "0.4.2", "EXTENSION_VERSION must be bumped to 0.4.2");
 
 // === extractImportResultStatus: helper exists and reads from nested result ===
 assert.equal(
@@ -288,7 +288,7 @@ removedWindowIds.length = 0;
 
 const immediateStopPayload = normalizeBatchPayload({
   batchId: "clb_v034_prompt_stop",
-  requiredExtensionVersion: "0.4.1",
+  requiredExtensionVersion: "0.4.2",
   roundSizeMin: 1,
   roundSizeMax: 1,
   stopOnBlock: true,
@@ -376,7 +376,7 @@ removedWindowIds.length = 0;
 
 const continueOnBlockPayload = normalizeBatchPayload({
   batchId: "clb_v034_continue_on_block",
-  requiredExtensionVersion: "0.4.1",
+  requiredExtensionVersion: "0.4.2",
   roundSizeMin: 1,
   roundSizeMax: 1,
   stopOnBlock: false,
@@ -445,7 +445,7 @@ removedTabIds.length = 0;
 
 const thresholdPayload = normalizeBatchPayload({
   batchId: "clb_v034_threshold_two",
-  requiredExtensionVersion: "0.4.1",
+  requiredExtensionVersion: "0.4.2",
   roundSizeMin: 1,
   roundSizeMax: 1,
   stopOnBlock: true,
@@ -537,4 +537,4 @@ assert.equal(getBatchTabEntryForTest(3205), undefined);
 assert.notEqual(getBatchTabEntryForTest(3204), undefined,
   "다른 배치 탭은 임계치 도달 시에도 유지되어야 한다");
 
-console.log("v0.4.1 blocked-detection and batch-tab cleanup tests passed");
+console.log("v0.4.2 blocked-detection and batch-tab cleanup tests passed");

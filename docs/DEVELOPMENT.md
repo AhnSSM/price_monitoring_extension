@@ -15,11 +15,11 @@
 | `popup.html` | popup form, auto toggle, 최근 상태 surface |
 | `popup.js` | fixed server origin, 수동 저장, auto toggle rendering, batch waiting/stopped/skipped/completed/incognito_not_allowed 상태 렌더링 |
 | `content.js` | 상품 상세 페이지 auto payload collector and trigger |
-| `background.js` | import POST, version metadata, dedup, current-list batch runner (`v0.4.1` per-round 시크릿 창 회전 + 정리, 시크릿 미허용 즉시 실패, regular fallback은 서버 명시 시에만), 최근 상태 저장 |
+| `background.js` | import POST, version metadata, dedup, current-list batch runner (`v0.4.2` per-round 시크릿 창 회전 + 정리, 시크릿 미허용 즉시 실패, regular fallback은 서버 명시 시에만), 최근 상태 저장 |
 | `current_list_bridge.js` | 서버 current-list 페이지 ↔ background `window.postMessage` bridge |
 | `docs/` | operator and developer documentation |
 
-## v0.4.1 핵심 변경 요약
+## v0.4.2 핵심 변경 요약
 
 - current-list batch 기본 세션 모드 = `incognito`, 세션 회전 = `per_round`. 각 라운드마다 새 시크릿 창을 열고 라운드 종료/차단 시 닫습니다.
 - 라운드 크기 8-12, 인터-라운드 10-20초, 탭 오픈 간격 0.3-1.0초.
@@ -109,7 +109,7 @@ fi
 - [ ] `node --check current_list_bridge.js` PASS.
 - [ ] 비밀 인증값, `.env`, DB, cookie/세션/토큰 수집 코드 없음.
 - [ ] README와 docs의 서버 origin 목록이 source와 일치.
-- [ ] README/USAGE/CONFIGURATION/TROUBLESHOOTING가 v0.4.1 contract(8-12 라운드, 10-20 인터-라운드, 시크릿 회전, 시크릿 미허용 실패, regular fallback 조건)를 일관되게 설명.
+- [ ] README/USAGE/CONFIGURATION/TROUBLESHOOTING가 v0.4.2 contract(8-12 라운드, 10-20 인터-라운드, 시크릿 회전, 시크릿 미허용 실패, regular fallback 조건)를 일관되게 설명.
 - [ ] LLM-assisted install guide가 비밀값/destructive command 경계를 설명.
 - [ ] 자동 test suite는 아직 없으며, 현재 기준은 정적 검증과 수동/자동 smoke임을 유지.
 - [ ] Brave unpacked reload 후 popup manual smoke와 auto-mode smoke 확인.

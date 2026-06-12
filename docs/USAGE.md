@@ -15,7 +15,7 @@
 
 ```json
 {
-  "extension_version": "0.4.1",
+  "extension_version": "0.4.2",
   "source": "manual_popup"
 }
 ```
@@ -49,7 +49,7 @@
 
 1. current-list 페이지에서 `갱신 필요 상품 확인` 또는 `상단 30개 강제 갱신` 버튼을 누릅니다.
 2. 페이지는 bridge content script에 `pm:ping`을 보내 설치/버전을 확인합니다.
-3. 버전이 `0.4.1`이고 시크릿 창이 허용돼 있으면 페이지가 현재 필터/정렬과 갱신 옵션을 반영해 batch payload를 만듭니다. force mode는 freshness/최근 품절 제외를 무시하지만 URL 없음/미지원 URL은 계속 제외합니다.
+3. 버전이 `0.4.2`이고 시크릿 창이 허용돼 있으면 페이지가 현재 필터/정렬과 갱신 옵션을 반영해 batch payload를 만듭니다. force mode는 freshness/최근 품절 제외를 무시하지만 URL 없음/미지원 URL은 계속 제외합니다.
 4. 페이지가 선택한 최대 30개 candidate, batch id, 라운드 크기(roundSizeMin/roundSizeMax/roundSizeMode), 인터-라운드 옵션, 그리고 세션 모드(`sessionMode`/`sessionRotation`)를 extension으로 전달합니다. 서버가 세션 모드를 보내지 않으면 extension은 기본값(`incognito` + `per_round`)을 사용합니다.
 5. extension background는 세션 모드가 `incognito`이면 라운드 시작 시 새 시크릿 창을 만들고, 그 안에서만 8-12개 사이 랜덤 크기로 탭을 비활성으로 엽니다. 첫 탭 이후 다음 탭은 0.3-1.0초 랜덤 간격으로 순차 오픈되며, 마지막 라운드는 남은 후보 수로 자동 clamp 됩니다. 라운드 종료 시 background는 그 라운드의 시크릿 창을 닫고 다음 라운드를 위해 새 시크릿 창을 다시 엽니다.
 6. 각 탭 payload는 기존 detail import API로 `source: "auto_page_view"` 전송됩니다.

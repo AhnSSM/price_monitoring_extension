@@ -1,4 +1,4 @@
-const EXTENSION_VERSION = "0.4.1";
+const EXTENSION_VERSION = "0.4.2";
 const SERVER_URL = "http://100.118.184.5:5000";
 const IMPORT_PATH = "/api/dedicated/coupang_apple_return_sale/detail-check/import";
 const AUTO_MODE_KEY = "autoModeEnabled";
@@ -459,6 +459,12 @@ async function processBatchItem(batchRun, item, roundSession) {
     item.tabId = tabId;
     if (typeof item.ownedWindowId !== "number" && createdTab && typeof createdTab.windowId === "number") {
       item.ownedWindowId = createdTab.windowId;
+    }
+    const createdTabWindowId = (createdTab && typeof createdTab.windowId === "number")
+      ? createdTab.windowId
+      : tabCreateProperties.windowId;
+    if (batchRun && batchRun.roundSession && batchRun.roundSession.windowId === createdTabWindowId) {
+      await closeRoundSessionPlaceholder(batchRun);
     }
     registerBatchTab({
       tabId,
@@ -1116,9 +1122,12 @@ async function openRoundSession(batchRun) {
   if (!createdWindow || typeof createdWindow.id !== "number") {
     throw new Error("private window 생성에 실패했습니다.");
   }
+  const placeholderTabId = extractPlaceholderTabId(createdWindow);
   batchRun.roundSession = {
     windowId: createdWindow.id,
-    closed: false
+    closed: false,
+    placeholderTabId,
+    placeholderClosed: false
   };
   registerBatchWindow({
     windowId: createdWindow.id,
@@ -1127,6 +1136,47 @@ async function openRoundSession(batchRun) {
     batchRunRef: batchRun
   });
   return batchRun.roundSession;
+}
+
+function extractPlaceholderTabId(createdWindow) {
+  if (!createdWindow || !Array.isArray(createdWindow.tabs) || createdWindow.tabs.length === 0) {
+    return null;
+  }
+  const firstTab = createdWindow.tabs[0];
+  if (!firstTab || typeof firstTab.id !== "number" || !Number.isFinite(firstTab.id)) {
+    return null;
+  }
+  return firstTab.id;
+}
+
+async function closeRoundSessionPlaceholder(batchRun) {
+  if (!batchRun || !batchRun.roundSession) {
+    return { closed: false, skipped: "no_round_session" };
+  }
+  const roundSession = batchRun.roundSession;
+  if (roundSession.placeholderClosed === true) {
+    return { closed: false, skipped: "already_closed" };
+  }
+  if (typeof roundSession.placeholderTabId !== "number") {
+    return { closed: false, skipped: "no_placeholder" };
+  }
+  if (typeof roundSession.windowId !== "number") {
+    return { closed: false, skipped: "no_window" };
+  }
+  const placeholderTabId = roundSession.placeholderTabId;
+  const windowId = roundSession.windowId;
+  roundSession.placeholderClosed = true;
+  try {
+    await removeTab(placeholderTabId);
+    return { closed: true, skipped: null };
+  } catch (error) {
+    const message = String(error && error.message ? error.message : "");
+    if (message.includes("No tab with id")) {
+      return { closed: false, skipped: "no_tab" };
+    }
+    console.warn("placeholder close failed", { placeholderTabId, windowId, message });
+    return { closed: false, skipped: "remove_error" };
+  }
 }
 
 async function closeRoundSession(batchRun) {

@@ -4,7 +4,7 @@
 
 사용자가 직접 연 `https://www.coupang.com/vp/products/*` 상품 상세 페이지에서 보이는 텍스트만 수집해 `price_monitoring` 서버의 detail import API로 전송합니다. 공식 웹스토어 배포 없이 GitHub repo를 받아 압축해제 확장 프로그램으로 설치하는 방식입니다.
 
-현재 소스 기준 버전은 `price_monitoring_extension v0.4.1`이며, 서버 `price_monitoring v0.2.0+`의 current-list batch/자동 송신 호환 계약을 맞춥니다. `v0.4.1`에서는 current-list batch의 기본 세션 모드를 `incognito`(시크릿/프라이빗 창)로 전환했고, 각 라운드마다 새로운 시크릿 창을 열어 (`sessionRotation: "per_round"`) 작업한 뒤 닫습니다. 라운드 크기는 8-12개 사이 랜덤(서버 `roundSizeMin`/`roundSizeMax` 수용, 기본 8-12 랜덤), 첫 탭 이후 각 탭 사이 0.3-1.0초 랜덤 간격으로 순차 오픈, 라운드 사이 10-20초 랜덤 인터-라운드 대기, 마지막 라운드는 남은 후보 수로 자동 clamp, 차단/캡차 감지 시 batch 자동 중단(`stop-on-block`), 그리고 current-list 페이지의 갱신 옵션과 force 모드를 지원합니다. 서버가 명시적으로 `sessionMode: "regular"`를 보낸 경우에만 일반 창 fallback을 사용하고, 그 외에는 모두 시크릿 창에서 실행됩니다.
+현재 소스 기준 버전은 `price_monitoring_extension v0.4.2`이며, 서버 `price_monitoring v0.2.0+`의 current-list batch/자동 송신 호환 계약을 맞춥니다. `v0.4.1`에서는 current-list batch의 기본 세션 모드를 `incognito`(시크릿/프라이빗 창)로 전환했고, 각 라운드마다 새로운 시크릿 창을 열어 (`sessionRotation: "per_round"`) 작업한 뒤 닫습니다. 라운드 크기는 8-12개 사이 랜덤(서버 `roundSizeMin`/`roundSizeMax` 수용, 기본 8-12 랜덤), 첫 탭 이후 각 탭 사이 0.3-1.0초 랜덤 간격으로 순차 오픈, 라운드 사이 10-20초 랜덤 인터-라운드 대기, 마지막 라운드는 남은 후보 수로 자동 clamp, 차단/캡차 감지 시 batch 자동 중단(`stop-on-block`), 그리고 current-list 페이지의 갱신 옵션과 force 모드를 지원합니다. 서버가 명시적으로 `sessionMode: "regular"`를 보낸 경우에만 일반 창 fallback을 사용하고, 그 외에는 모두 시크릿 창에서 실행됩니다.
 
 ## 빠른 시작
 
@@ -60,6 +60,7 @@ Tailscale IP 또는 MagicDNS hostname이 바뀌면 `manifest.json`의 `host_perm
 
 ## 변경 이력
 
+- `v0.4.2`: incognito 라운드 시작 시 생성된 `about:blank` placeholder 탭 id를 `roundSession.placeholderTabId`로 추적하고, 같은 라운드의 첫 실제 product 탭이 성공적으로 열린 직후 placeholder를 한 번만 닫음 (placeholder가 없거나 이미 사라진 경우는 non-fatal, 다른 배치/유저 탭은 건드리지 않음). 이전 라운드의 시크릿 창/탭 정리 동작은 그대로 유지.
 - `v0.4.1`: current-list batch 기본 세션 모드를 `incognito`로 전환, `sessionRotation: "per_round"`로 라운드별 새 시크릿 창 회전, 시크릿 창이 닫히지 않은 경우 background가 라운드 종료/차단 시점에 정리, Brave/Chrome `Allow in Private` 미허용 시 `incognito_not_allowed`로 즉시 실패, 라운드 크기 8-12, 인터-라운드 10-20초, owned-window cleanup 카운트(`closedOwnedWindows` / `closedOwnedWindowsSkipped`) popup 노출, popup `최근 current-list batch`에 `[모드 시크릿(라운드별 새 시크릿 창) · 라운드 N/M · 닫은 시크릿 창 K개]` 요약 추가. 명시적 `sessionMode: "regular"`가 서버에서 올 때만 일반 창 fallback, 그 외 regular fallback 없음. 서버 `price_monitoring v0.2.0`과 호환.
 - `v0.3.x` (이전 마이그레이션 참고용): 상단 30개 후보 batch runner, 라운드 다섯~열 개 사이 랜덤 크기, 인터-라운드 10~30초 랜덤 대기, 차단/캡차 감지 시 자동 중단(`stop-on-block`), 미실행 항목 `skipped` 분류, current-list 페이지의 freshness/품절 후보/force 옵션 지원, popup `최근 current-list batch`가 진행 중/대기/중단/최근 결과/실패를 구분해서 보여 줌. 상태 surface는 `wavePattern`/`currentWave`/`waveCount`/`concurrency` 대신 `roundSize`/`currentRound`/`roundCount`/`lastRoundSize`를 노출. 기존 `wavePattern`은 호환 fallback 필드로만 유지하며 active 동작으로 안내하지 않습니다. `v0.4.1`에서 시크릿 모드/라운드 사이즈/인터-라운드 대기는 새 기본값으로 교체되었습니다.
 - `v0.3.1` (이전 마이그레이션 참고용): 상단 15개 후보 6-5-4 웨이브, `stop-on-block` 미지원, 인터-웨이브 1.5s 고정. 자세한 변경 이유는 서버 `price_monitoring` 측 마이그레이션 로그를 참고하세요.
@@ -101,14 +102,14 @@ Tailscale IP 또는 MagicDNS hostname이 바뀌면 `manifest.json`의 `host_perm
 
 자동/수동 import 요청은 아래 metadata와 본문만 전송합니다.
 
-- `extension_version: "0.4.1"`
+- `extension_version: "0.4.2"`
 - `source: "manual_popup"` 또는 `"auto_page_view"`
 - `url`
 - `final_url`
 - `title`
 - `text` from `document.body.innerText`
 
-진단용으로 `X-Price-Monitoring-Extension-Version: 0.4.1` header를 함께 보냅니다.
+진단용으로 `X-Price-Monitoring-Extension-Version: 0.4.2` header를 함께 보냅니다.
 
 수집하지 않는 항목:
 
@@ -121,7 +122,7 @@ Tailscale IP 또는 MagicDNS hostname이 바뀌면 `manifest.json`의 `host_perm
 
 ## 운영 전제
 
-- `price_monitoring` 서버 `v0.2.0+`가 detail import API를 제공해야 합니다. 서버는 `extension_version: "0.4.1"`을 수용하는 버전이어야 합니다.
+- `price_monitoring` 서버 `v0.2.0+`가 detail import API를 제공해야 합니다. 서버는 `extension_version: "0.4.2"`을 수용하는 버전이어야 합니다.
 - 서버는 Tailscale 망 안에서만 접근을 허용하도록 source gate가 설정돼 있어야 합니다.
 - 비밀 인증값을 extension이 보관하거나 전송하지 않습니다.
 - Brave/Chrome 확장 카드의 `Allow in Private` / `Allow in Incognito`이 켜져 있어야 `v0.4.1`의 기본 시크릿 batch가 동작합니다.
